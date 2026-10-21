@@ -11,8 +11,21 @@ PROFILE="${DSH_PROFILE_DIR:-$HOME/.dsh/profiles/desktop}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PKG="$(node -p "require('$HERE/package.json').name")"
 
-if pgrep -f "MacOS/DeepSeek Harness" >/dev/null 2>&1; then
-  echo "✗ DSH App 还在运行（pgrep 命中）。请先完全退出 App 再安装 —— bundle 只在启动时加载。"
+APP_BIN="/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness"
+
+# 注意：这台机器上 `pgrep -f` 只匹配进程名，匹配不到带参数的宿主进程；
+# 而 `pgrep -f "MacOS/DeepSeek Harness"` 又会命中 Helper 子进程（路径里带同一段前缀）。
+# 所以这里一律用 ps 的完整命令行，并排除 Helper 行。
+app_pids() {
+  # bin 走环境变量而不是 awk -v：-v 会把路径塞进 awk 自己的命令行，
+  # 于是 awk 进程匹配到自己，守卫永远为真（第一版就踩过）。
+  BIN="$APP_BIN" ps -Ao pid=,command= | BIN="$APP_BIN" awk '
+    index($0, ENVIRON["BIN"]) && index($0, "Helper") == 0 { print $1 }
+  '
+}
+
+if [[ -n "$(app_pids)" ]]; then
+  echo "✗ DSH App 还在运行（PID: $(app_pids | tr '\n' ' ')）。请先完全退出 App 再安装 —— bundle 只在启动时加载。"
   exit 1
 fi
 
@@ -23,6 +36,8 @@ fi
 
 MODE="install"
 [[ "${1:-}" == "--remove" ]] && MODE="remove"
+
+cp "$PROFILE/package.json" "$PROFILE/package.json.bak-radeon-capacity"
 
 node - "$PROFILE/package.json" "$PKG" "$HERE" "$MODE" <<'NODE'
 const [file, pkg, here, mode] = process.argv.slice(2)
@@ -48,10 +63,16 @@ NODE
 
 cd "$PROFILE"
 if [[ "$MODE" == "remove" ]]; then
-  pnpm remove "$PKG"
+  pnpm remove "$PKG" || { echo "✗ pnpm remove 失败，package.json 未回滚（改动很小，可手动检查）"; exit 1; }
 else
-  pnpm install
+  # 装失败就把 manifest 还原 —— 半截的 package.json 会让 App 起不来。
+  if ! pnpm install; then
+    cp "$PROFILE/package.json.bak-radeon-capacity" "$PROFILE/package.json"
+    echo "✗ pnpm install 失败，已把 package.json 还原。"
+    exit 1
+  fi
 fi
+rm -f "$PROFILE/package.json.bak-radeon-capacity"
 
 echo
 if [[ "$MODE" == "remove" ]]; then
