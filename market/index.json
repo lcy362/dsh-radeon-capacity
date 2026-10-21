@@ -84,7 +84,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/lcy362/dsh-radeon-capacity",
-            "commit": "b136a1ad07009834da6508d13fa0b46a1bd18b6e"
+            "commit": "ee86c115502777a77ade2a4fadba3537a1d009ef"
           },
           "engines": {
             "dsh": ">=0.2.0-rc.1 <0.3.0-0"
