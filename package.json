@@ -31,6 +31,7 @@
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
+    "market",
     "LICENSE"
   ],
   "dsh": {
@@ -50,6 +51,7 @@
   },
   "scripts": {
     "test": "node --test --test-force-exit \"test/*.test.mjs\"",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "check:market": "node scripts/check-market.mjs"
   }
 }

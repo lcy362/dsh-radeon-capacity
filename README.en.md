@@ -40,6 +40,26 @@ the UI language.
 
 ## Install
 
+### From the plugin market (recommended)
+
+DSH's Settings → Plugins → Discover page accepts **market sources**, and this repo ships
+a compliant [format 1 index](market/index.json). Add either URL as a source:
+
+```
+https://raw.githubusercontent.com/lcy362/dsh-radeon-capacity/main/market/index.json
+```
+
+If `raw.githubusercontent.com` is unreliable from your network, use the jsDelivr mirror:
+
+```
+https://cdn.jsdelivr.net/gh/lcy362/dsh-radeon-capacity@main/market/index.json
+```
+
+Radeon Capacity then shows up under Discover and installs with one click (the market
+installs the pinned commit, never a half-finished branch tip).
+
+### From source
+
 ```sh
 cd ~/.dsh/profiles/desktop
 pnpm add dsh-radeon-capacity        # or: pnpm add /path/to/this/repo

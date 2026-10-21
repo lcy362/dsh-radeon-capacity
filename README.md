@@ -36,6 +36,26 @@ Radeon Cloud 的模型会在 `idle / busy / full` 之间浮动，这才是真正
 
 ## 安装
 
+### 从插件市场装（推荐）
+
+DSH 的「设置 → 插件 → 发现」页可以添加**市场来源**，本插件已经带了合规的
+[format 1 索引](market/index.json)。把下面任一 URL 加为来源：
+
+```
+https://raw.githubusercontent.com/lcy362/dsh-radeon-capacity/main/market/index.json
+```
+
+国内网络拉 `raw.githubusercontent.com` 不稳时，换 jsDelivr 的同名文件：
+
+```
+https://cdn.jsdelivr.net/gh/lcy362/dsh-radeon-capacity@main/market/index.json
+```
+
+加完就能在「发现」里看到 Radeon Capacity，点安装即可（市场会用钉死的 commit
+装，不会装到分支上的半成品）。
+
+### 从源码装
+
 ```sh
 cd ~/.dsh/profiles/desktop
 pnpm add dsh-radeon-capacity      # 或 pnpm add /path/to/this/repo
