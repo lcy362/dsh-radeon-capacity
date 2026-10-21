@@ -20,10 +20,21 @@ The console's "AI Capacity" bar is fed by `GET /radeon/api/tokenfactory/load`, a
 | Where | What |
 |---|---|
 | Model picker | A badge after every Radeon model: `● 12%` (green) / `● 63%` (amber) / `● 100%` (red) |
-| Below the composer | Capacity of the selected model, with quota dimmed after it: `● Busy 55%` `$0.97 / $1.00` |
+| Same row as the model picker | Capacity of the selected model, immediately left of the model name (where WorkBuddy / Trae put their credits); quota dimmed after it: `● Busy 55% · $0.97 / $1.00` |
 | Settings → Plugins → dsh-radeon-capacity | Every written model with its live capacity; config area (optional) |
 
 The badge only registers **after** a Radeon provider is detected, so it never hijacks the core model-label slot when you don't use Radeon.
+
+The reading lives in `conversation.input.right` — the same `standardControls` container
+as the model picker, rendered immediately before it, so the reading sits **beside** the
+model name. It also shows up once a model is picked but before the first message is sent.
+(Earlier versions used `conversation.composer.dock` below the composer, which only renders
+in the `composer` variant — a fresh session is the `hero` variant, so the reading vanished
+in the "picked but not started" state.)
+
+On-screen readings are **English only** (`Idle / Busy / Full` are AMD's own console terms);
+the settings page goes through DSH's locale mechanism and is bilingual (zh/en), following
+the UI language.
 
 ## Install
 
@@ -159,7 +170,7 @@ The accompanying `compat` flags are equally measured (6/10 models reject DSH's d
 ## Development
 
 ```sh
-npm test                        # 43 tests: caching/single-flight/backoff, quota header
+npm test                        # 44 tests: caching/single-flight/backoff, quota header
                                 # parsing, provider detection, routes, and UI integration
                                 # tests that really load the client bundle
 node scripts/smoke.mjs          # live smoke test against real endpoints; prints capacity
