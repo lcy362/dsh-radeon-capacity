@@ -146,9 +146,13 @@ Radeon 的模型目录接口不返回 `reasoning_effort` 支持情况，只能�
 ## 开发
 
 ```sh
-node --test "test/*.test.mjs"   # 22 项单测：缓存/单飞/退避、额度头解析、provider 探测、路由
+npm test                        # 34 项：缓存/单飞/退避、额度头解析、provider 探测、路由、
+                                #        以及把客户端 bundle 真加载一遍的界面集成测试
 node scripts/smoke.mjs          # 真机冒烟：打真实端点，只打印容量与额度，不打印密钥
 ```
+
+`npm test` 带 `--test-force-exit`：客户端半区会起一个轮询定时器（界面行为），
+不带的话测试进程会一直挂着。
 
 ## 许可
 

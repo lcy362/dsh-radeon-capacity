@@ -34,7 +34,6 @@
     "LICENSE"
   ],
   "dsh": {
-    "manifestVersion": 1,
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
@@ -44,16 +43,13 @@
         "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-ui-primitives"
       ]
-    },
-    "compatibility": {
-      "dsh": ">=0.2.0-rc.1 <0.3.0-0"
     }
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.1"
   },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test --test-force-exit \"test/*.test.mjs\"",
     "smoke": "node scripts/smoke.mjs"
   }
 }
