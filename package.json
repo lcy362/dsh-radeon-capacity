@@ -1,0 +1,59 @@
+{
+  "name": "dsh-radeon-capacity",
+  "version": "0.1.0",
+  "description": "AMD Radeon Cloud 模型容量（忙闲度）与额度读数：模型选择器里显示每个模型的并发配额水位，输入框下方显示当前模型的容量与当日额度，并可选一键写入 provider 配置（写在用户层，卸载本插件后依然可用）。",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "radeon",
+    "amd",
+    "capacity",
+    "quota",
+    "reasoning",
+    "token-factory"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.0-rc.1 <0.3.0-0"
+  },
+  "main": "./src/host/index.js",
+  "exports": {
+    ".": "./src/host/index.js",
+    "./client": "./src/client/index.js",
+    "./catalog": "./src/shared/catalog.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "scripts/smoke.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    },
+    "compatibility": {
+      "dsh": ">=0.2.0-rc.1 <0.3.0-0"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.1"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "smoke": "node scripts/smoke.mjs"
+  }
+}

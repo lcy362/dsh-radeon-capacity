@@ -1,0 +1,12 @@
+# 本插件的 bundle 补丁层：只插入自己那一行，不声明任何 provider。
+#
+# 为什么不把 provider 写在这里：写在插件层意味着「卸载插件 = 删除供应商」。
+# 本插件的目标是反过来的 —— 用户在插件里配置的 provider 必须活过卸载，
+# 所以配置统一写进**用户层**（由 ctx.settings.update 落到 profile 补丁），
+# 这里只负责把插件本身挂上去。
+#
+# id 取包名去掉作用域后的短名，与 DSH 现有惯例一致（对照 llm-pi-ai）；
+# name 必须是 profile node_modules 里的完整包标识符。
+- insert:
+    - id: radeon-capacity
+      name: dsh-radeon-capacity
