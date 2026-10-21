@@ -17,12 +17,19 @@ The badge only registers **after** a Radeon provider is detected, so it never hi
 ## Install
 
 ```sh
-# Quit the DSH app first, then:
 cd ~/.dsh/profiles/desktop
 pnpm add dsh-radeon-capacity        # or: pnpm add /path/to/this/repo
 # register "dsh-radeon-capacity" in package.json → dsh.profile.bundles
-# restart DSH
 ```
+
+**No restart needed.** The kernel's HMR (`dsh-hmr`) watches the profile
+`package.json` and `cordis.patch.yml` and recomposes patches live; the client half
+(`dsh-client-hmr`) polls bundle mtimes and pushes `/plugins/events`, so the browser
+swaps in the new `client.js` revision on its own.
+
+The one exception is a log line like
+`changed modules keep running their previous code until a restart` — modules already
+loaded under the old code need a restart. A first install never hits this.
 
 ## Configuration
 

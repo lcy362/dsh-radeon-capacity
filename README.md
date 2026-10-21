@@ -26,15 +26,20 @@ Radeon Cloud 的免费额度是「每日 $1 + 每分钟 20 次」，模型还会
 ## 安装
 
 ```sh
-# 1) 装进 profile（先完全退出 DSH App）
 cd ~/.dsh/profiles/desktop
 pnpm add dsh-radeon-capacity      # 或 pnpm add /path/to/this/repo
-
-# 2) 登记到 profile 的 bundles
-#    ~/.dsh/profiles/desktop/package.json → "dsh": { "profile": { "bundles": [ ... "dsh-radeon-capacity" ] } }
-
-# 3) 重启 DSH
+# 登记到 profile 的 bundles：
+#   ~/.dsh/profiles/desktop/package.json → "dsh": { "profile": { "bundles": [ ... "dsh-radeon-capacity" ] } }
 ```
+
+**不用重启 DSH。** 内核的 HMR（`dsh-hmr`）同时盯着 profile 的 `package.json` 和
+`cordis.patch.yml`，一改就重算补丁、把新 bundle 装进来；客户端半区由
+`dsh-client-hmr` 轮询 bundle 的 mtime，变了就推 `/plugins/events`，浏览器自动换成新
+revision 的 `client.js`。
+
+例外只有一种：日志里出现
+`changed modules keep running their previous code until a restart` 时，那些**已经被
+旧代码加载过**的模块要重启才换得掉。第一次安装不涉及这条（旧代码压根没加载过）。
 
 插件自己只声明一行 `insert`，不写任何 provider 定义 —— 见下面「为什么 provider 不在插件层」。
 
