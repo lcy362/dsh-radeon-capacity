@@ -1,8 +1,19 @@
 # dsh-radeon-capacity
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai/harness) 的独立插件：把 **AMD Radeon Cloud（Token Factory）** 的模型忙闲度与当日额度搬到界面上，并可选一键写入 provider 配置。
+给 [DeepSeek Harness](https://github.com/deepseek-ai/harness) 的独立插件：**在选模型之前，就能看到 AMD Radeon Cloud（Token Factory）每个模型忙不忙、今天还剩多少额度。**
 
-它不接管任何模型调用 —— 传输、思考字段、用量计量仍由 DSH 自带的 `dsh-llm-pi-ai` 承担。本插件只做「读数」和「配置」两件事。
+主功能是**读数**。配置能力是顺带的 —— 已经配好 Radeon provider 的人装完即用，什么都不用填。
+
+它不接管任何模型调用 —— 传输、思考字段、用量计量仍由 DSH 自带的 `dsh-llm-pi-ai` 承担。
+
+## 它解决什么
+
+Radeon Cloud 的免费额度是「每日 $1 + 每分钟 20 次」，模型还会在 `idle / busy / full` 之间浮动。原来的信息只有两个去处：
+
+1. Radeon 的网页控制台（要切窗口、要登录）；
+2. 撞上限流之后看报错。
+
+控制台里那根「AI Capacity」进度条的来源是 `GET /radeon/api/tokenfactory/load`，而 DSH 的模型选择器恰好有一个可以承载徽章的槽。把两边接起来，**在你点下模型之前**就知道它现在挤不挤。
 
 ## 它长什么样
 
@@ -10,18 +21,9 @@
 |---|---|
 | 模型选择器 | 每个 Radeon 模型名后一枚徽章：`● 12%`（绿）/ `● 63%`（橙）/ `● 100%`（红） |
 | 输入框下方胶囊 | 当前选中模型的容量 + 当日额度：`● Busy 55% · 额度 $0.97 / $1.00` |
-| 设置 → 插件 → dsh-radeon-capacity | 状态总览 + 一键写入 provider（可同时存密钥、勾选模型）。配置长在插件自己的页面里，**不往 DSH 设置页加分区** |
+| 设置 → 插件 → dsh-radeon-capacity | 已写入的模型连同实时容量逐条列出；配置区（可选） |
 
 徽章是**探测到 Radeon provider 之后才注册**的。没有 Radeon provider 时它根本不占那个槽，不会把内核自带的模型标注顶掉。
-
-## 为什么要做这个插件
-
-Radeon Cloud 的免费额度是「每日 $1 + 每分钟 20 次」，模型还会在 `idle / busy / full` 之间浮动。原来的信息只有两个去处：
-
-1. Radeon 的网页控制台（要切窗口、要登录）；
-2. 撞上限流之后看报错。
-
-控制台里那根「AI Capacity」进度条的来源是 `GET /radeon/api/tokenfactory/load`，而 DSH 的模型选择器恰好有一个可以承载徽章的槽。把两边接起来，就能在**选模型之前**看到它忙不忙。
 
 ## 安装
 
@@ -41,15 +43,13 @@ revision 的 `client.js`。
 `changed modules keep running their previous code until a restart` 时，那些**已经被
 旧代码加载过**的模块要重启才换得掉。第一次安装不涉及这条（旧代码压根没加载过）。
 
-插件自己只声明一行 `insert`，不写任何 provider 定义 —— 见下面「为什么 provider 不在插件层」。
+## 已经配好 Radeon provider 的人：装完就有读数
 
-## 配置
+**什么都不用做。** 插件按 **baseURL 里是否含 `developer.amd.com.cn`** 认人，不看你把 provider 叫 `amd` 还是 `radeon-cloud`，也不管密钥引用叫 `AMD_API_KEY` 还是别的。容量和额度会直接出现在界面上。
 
-### 已经配好 Radeon provider 的人
+这是设计上的取舍：认 baseURL 而不是认 provider id，所以你已有的配置不需要为这个插件改任何东西。
 
-什么都不用做。插件按 **baseURL 里是否含 `developer.amd.com.cn`** 认人，不看你把 provider 叫 `amd` 还是 `radeon-cloud`，也不管密钥引用叫 `AMD_API_KEY` 还是别的。容量和额度会直接出现在界面上。
-
-### 还没配的人
+## 顺带：还没有 provider 的话，插件也能替你配
 
 设置 → 插件 → dsh-radeon-capacity → 填三格：
 
@@ -59,7 +59,11 @@ revision 的 `client.js`。
 
 点「写入配置」。写入的是 **DSH 用户层**（`ctx.settings.update` → profile 补丁），因此：
 
-> **卸载本插件之后，provider 仍然在、仍然能用。** 这正是本插件与「把 provider 塞进自己 bundle 层」的插件最本质的区别。
+> **卸载本插件之后，provider 仍然在、仍然能用。**
+
+配置页不会让你对着一个空表单重新猜一遍 —— 它把**已写入的真实状态**摆出来：哪些模型已经写进去了、每个模型旁边标「已写入 / 新增 / 将移除」，按钮文案也跟着变（「新增 provider」/「保存修改」/「重新写入（无变化）」），下面还有一块「本次操作」把要加什么、要减什么逐条列清。
+
+配置在提交后立刻返回，不等容量刷新 —— 容量端点单次约 25 秒，等它会让按钮白卡 25 秒，而配置其实早已落库。
 
 ### 插件自身的配置（可选）
 
@@ -77,6 +81,8 @@ revision 的 `client.js`。
     capacityTtlMs: 30000         # 容量缓存
     quotaTtlMs: 60000            # 额度缓存
 ```
+
+插件自己只声明一行 `insert`，**不写任何 provider 定义** —— 否则卸载插件会连带把 provider 带走。
 
 ## 数据源
 
@@ -118,7 +124,7 @@ x-ratelimit-remaining-user-rpm: 17
 
 ### 思考档位
 
-Radeon 的模型目录接口不返回 `reasoning_effort` 支持情况，只能实测。本插件内置一张实测表（10 个对话模型，四种档位形状），一键配置 provider 时连同 `reasoningEfforts` 一起写进去：
+Radeon 的模型目录接口不返回 `reasoning_effort` 支持情况，只能实测。本插件内置一张实测表（10 个对话模型，四种档位形状），配置 provider 时连同 `reasoningEfforts` 一起写进去：
 
 | 形状 | 模型 | 档位 |
 |---|---|---|
@@ -139,6 +145,7 @@ Radeon 的模型目录接口不返回 `reasoning_effort` 支持情况，只能�
 - **客户端是手写单文件 bundle**：`window.__ModuleLoader__.load({ id, factory })`，`require()` 只能拿平台 seed（`react` 等），所以没有构建步骤、没有相对 import；
 - **single 槽的坑**：`conversation.input.model.label` 声明为 `kind: "single"`，渲染时取 `entriesOfSlot(key)[0]`。抢占它必须同时满足「`priority` 更靠前」和「自己输出模型名」—— `fallback: model.name` 只在槽里一条都没有时生效。所以本插件在没有 Radeon provider 时**不注册**，而不是注册一个空壳。
 - **接管是全局的**：一旦接管，内核自带的 `dsh-client-ui-deepseek-model-label-1017` 就再也不会渲染。所以本插件按同一套判定（provider.id / model.id / model.name）把那个 `1017` 标记等价补上；内核改判定时要跟着改。不想承担这个耦合就把 `modelLabelBadge` 关掉（代价是选择器里没有容量徽章）。
+- **表单初值必须是派生的，不能靠 effect 回填**：面板可能在 `/state` 返回前就渲染，那一刻「默认全选」会被固定成用户的选择，结果界面显示全部模型、实际只写入几个。这条有回归测试盯着。
 
 ## 已知限制
 
@@ -151,8 +158,8 @@ Radeon 的模型目录接口不返回 `reasoning_effort` 支持情况，只能�
 ## 开发
 
 ```sh
-npm test                        # 34 项：缓存/单飞/退避、额度头解析、provider 探测、路由、
-                                #        以及把客户端 bundle 真加载一遍的界面集成测试
+npm test                        # 41 项：缓存/单飞/退避、额度头解析、provider 探测、路由，
+                                # 以及把客户端 bundle 真加载一遍的界面集成测试
 node scripts/smoke.mjs          # 真机冒烟：打真实端点，只打印容量与额度，不打印密钥
 ```
 
