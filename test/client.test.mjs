@@ -378,6 +378,35 @@ test('配置页：summary 视图是一行短文案，不塞整块面板', async 
   assert.equal(summary.includes('接口配置'), false)
 })
 
+test('胶囊：容量为主，额度只是弱化的参考值', async () => {
+  const { exports, registrations, ctx } = await loadClient({ state: READY_STATE })
+  exports.apply(ctx)
+  await tick()
+  const pill = registrations.find((row) => row.spec.name === 'conversation.composer.dock')
+  const directory = { store: { subscribe: () => () => {}, getSnapshot: () => ({ current: { provider: 'amd', model: 'GLM-5.3-Flash' } }) } }
+  const node = pill.component({ directory })
+  // 额度单独一个弱化元素，不和容量挤在同一段文字里
+  const flat = texts(node)
+  assert.ok(flat.some((text) => /Busy 55%/.test(text)), '容量主读数')
+  assert.ok(flat.some((text) => /额度/.test(text)), '额度仍展示')
+  assert.equal(flat.some((text) => /Busy 55%.*额度/.test(text)), false, '额度不该并进容量那一段')
+  // tooltip 要说明额度只是参考、不影响调用
+  assert.match(node.props.title, /AMD 当前免费不限量/)
+})
+
+test('胶囊：容量没读数时仍出胶囊，因为「没流量」本身是信息', async () => {
+  const noLoad = JSON.parse(JSON.stringify(READY_STATE))
+  noLoad.capacity = { ok: true, models: {}, fetchedAt: Date.now(), ageMs: 1000, error: null }
+  const { exports, registrations, ctx } = await loadClient({ state: noLoad })
+  exports.apply(ctx)
+  await tick()
+  const pill = registrations.find((row) => row.spec.name === 'conversation.composer.dock')
+  const directory = { store: { subscribe: () => () => {}, getSnapshot: () => ({ current: { provider: 'amd', model: 'GLM-5.3-Flash' } }) } }
+  const node = pill.component({ directory })
+  assert.ok(node !== null, '不该整个消失')
+  assert.match(texts(node).join(''), /额度/)
+})
+
 test('胶囊：选中 Radeon 模型时出容量与额度，选别家时不出', async () => {
   const { exports, registrations, ctx } = await loadClient({ state: READY_STATE })
   exports.apply(ctx)

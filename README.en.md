@@ -1,14 +1,14 @@
 # dsh-radeon-capacity
 
-An independent plugin for [DeepSeek Harness](https://github.com/deepseek-ai/harness) that shows **how busy each AMD Radeon Cloud (Token Factory) model is, and how much daily quota is left — before you pick a model.**
+An independent plugin for [DeepSeek Harness](https://github.com/deepseek-ai/harness) that shows **how busy each AMD Radeon Cloud (Token Factory) model is, before you pick it.**
 
-Reading numbers is the point. Writing config is a side feature: if you already have a Radeon provider, install and you're done.
+Capacity is the point. Writing config is a side feature: if you already have a Radeon provider, install and you're done. Quota is displayed too, but **for reference only** — AMD is currently free and unmetered, so that number never affects whether you can call a model.
 
 It never proxies model calls: transport, reasoning fields and usage accounting stay with DSH's own `dsh-llm-pi-ai`.
 
 ## The problem
 
-Radeon Cloud gives you "$1/day + 20 requests/minute", and its models drift between `idle / busy / full`. Until now that information lived in two bad places:
+Radeon Cloud models drift between `idle / busy / full`, and that's the thing that actually bites — hitting `full` means waiting for the concurrency budget to free up. Until now that information lived in two bad places:
 
 1. Radeon's web console (switch windows, log in);
 2. an error, after you already hit the rate limit.
@@ -20,7 +20,7 @@ The console's "AI Capacity" bar is fed by `GET /radeon/api/tokenfactory/load`, a
 | Where | What |
 |---|---|
 | Model picker | A badge after every Radeon model: `● 12%` (green) / `● 63%` (amber) / `● 100%` (red) |
-| Below the composer | Capacity + daily quota of the selected model: `● Busy 55% · $0.97 / $1.00` |
+| Below the composer | Capacity of the selected model, with quota dimmed after it: `● Busy 55%` `$0.97 / $1.00` |
 | Settings → Plugins → dsh-radeon-capacity | Every written model with its live capacity; config area (optional) |
 
 The badge only registers **after** a Radeon provider is detected, so it never hijacks the core model-label slot when you don't use Radeon.
@@ -44,7 +44,7 @@ loaded under the old code need a restart. A first install never hits this.
 
 ## Already have a Radeon provider? It just works
 
-**Nothing to do.** Detection is by **`baseURL` containing `developer.amd.com.cn`**, so the provider id (`amd`, `radeon-cloud`, anything) and the credential ref don't matter. Capacity and quota appear immediately.
+**Nothing to do.** Detection is by **`baseURL` containing `developer.amd.com.cn`**, so the provider id (`amd`, `radeon-cloud`, anything) and the credential ref don't matter. Capacity appears immediately, with quota shown as a reference value.
 
 That's a deliberate trade-off: matching on baseURL rather than provider id means your existing setup needs no changes for this plugin.
 
@@ -99,7 +99,7 @@ A console-internal route (undocumented), with three facts the design must respec
 
 Because it's slow, the host does `stale-while-revalidate`: serve the old value, refresh in the background. The UI never hangs on a 25 s request, and data age is shown in the tooltip and settings page. ~30 s freshness is the server's limit; anything faster would be fabrication.
 
-### Quota — `x-ratelimit-*` headers
+### Quota (display only) — `x-ratelimit-*` headers
 
 The gateway returns these on **any** successful response:
 
@@ -110,7 +110,13 @@ x-ratelimit-limit-user-rpm: 20
 x-ratelimit-remaining-user-rpm: 17
 ```
 
-There is no quota endpoint, so a single `max_tokens: 1` probe reads them (measured 0.31 s, negligible cost, 1 RPM). The probe has its own 60 s TTL and single-flight, decoupled from capacity polling; `quotaProbe: false` turns it off entirely.
+**AMD is currently free and unmetered; these are nominal values** and impose no real limit. So the plugin only *displays* them:
+
+- no gating — a "spent" quota never disables a model or blocks a request;
+- no alerting, no colour changes, kept out of the primary reading and dimmed in the UI;
+- the tooltip says outright that it's for reference and doesn't affect whether you can call.
+
+There is no quota endpoint, so a single `max_tokens: 1` probe reads the headers (measured 0.31 s, negligible cost, 1 RPM). It has its own 60 s TTL and single-flight, decoupled from capacity polling. **If you don't care, set `quotaProbe: false`** — you lose one reference number, capacity is unaffected.
 
 ### Model discovery
 
@@ -147,13 +153,13 @@ The accompanying `compat` flags are equally measured (6/10 models reject DSH's d
 - Capacity is ~30 s granular, never second-level.
 - `full` means the concurrency budget is exhausted, **not** that the model is unusable — nothing is ever hard-disabled.
 - Models with no traffic have no reading (shown as unknown, never assumed idle).
-- The quota probe costs 1 RPM and a tiny fraction of a cent.
+- Quota is **nominal** (AMD is free and unmetered right now): display only, never gates anything. The probe itself costs 1 RPM.
 - The console-internal endpoint may change; if it does, capacity degrades to "no reading" and everything else keeps working.
 
 ## Development
 
 ```sh
-npm test                        # 41 tests: caching/single-flight/backoff, quota header
+npm test                        # 43 tests: caching/single-flight/backoff, quota header
                                 # parsing, provider detection, routes, and UI integration
                                 # tests that really load the client bundle
 node scripts/smoke.mjs          # live smoke test against real endpoints; prints capacity

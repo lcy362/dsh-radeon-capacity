@@ -1,14 +1,14 @@
 # dsh-radeon-capacity
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai/harness) 的独立插件：**在选模型之前，就能看到 AMD Radeon Cloud（Token Factory）每个模型忙不忙、今天还剩多少额度。**
+给 [DeepSeek Harness](https://github.com/deepseek-ai/harness) 的独立插件：**在选模型之前，就能看到 AMD Radeon Cloud（Token Factory）每个模型现在忙不忙。**
 
-主功能是**读数**。配置能力是顺带的 —— 已经配好 Radeon provider 的人装完即用，什么都不用填。
+主功能是**容量读数**。配置能力是顺带的 —— 已经配好 Radeon provider 的人装完即用，什么都不用填。额度也会显示，但**仅作展示**：AMD 目前免费不限量，这个数字不影响你能不能调用。
 
 它不接管任何模型调用 —— 传输、思考字段、用量计量仍由 DSH 自带的 `dsh-llm-pi-ai` 承担。
 
 ## 它解决什么
 
-Radeon Cloud 的免费额度是「每日 $1 + 每分钟 20 次」，模型还会在 `idle / busy / full` 之间浮动。原来的信息只有两个去处：
+Radeon Cloud 的模型会在 `idle / busy / full` 之间浮动，这才是真正会咬人的东西 —— 撞上 `full` 就得等并发配额腾出来。原来的信息只有两个去处：
 
 1. Radeon 的网页控制台（要切窗口、要登录）；
 2. 撞上限流之后看报错。
@@ -20,7 +20,7 @@ Radeon Cloud 的免费额度是「每日 $1 + 每分钟 20 次」，模型还会
 | 位置 | 内容 |
 |---|---|
 | 模型选择器 | 每个 Radeon 模型名后一枚徽章：`● 12%`（绿）/ `● 63%`（橙）/ `● 100%`（红） |
-| 输入框下方胶囊 | 当前选中模型的容量 + 当日额度：`● Busy 55% · 额度 $0.97 / $1.00` |
+| 输入框下方胶囊 | 当前选中模型的容量，额度弱化跟在后面：`● Busy 55%` `额度 $0.97 / $1.00` |
 | 设置 → 插件 → dsh-radeon-capacity | 已写入的模型连同实时容量逐条列出；配置区（可选） |
 
 徽章是**探测到 Radeon provider 之后才注册**的。没有 Radeon provider 时它根本不占那个槽，不会把内核自带的模型标注顶掉。
@@ -45,7 +45,7 @@ revision 的 `client.js`。
 
 ## 已经配好 Radeon provider 的人：装完就有读数
 
-**什么都不用做。** 插件按 **baseURL 里是否含 `developer.amd.com.cn`** 认人，不看你把 provider 叫 `amd` 还是 `radeon-cloud`，也不管密钥引用叫 `AMD_API_KEY` 还是别的。容量和额度会直接出现在界面上。
+**什么都不用做。** 插件按 **baseURL 里是否含 `developer.amd.com.cn`** 认人，不看你把 provider 叫 `amd` 还是 `radeon-cloud`，也不管密钥引用叫 `AMD_API_KEY` 还是别的。容量读数会直接出现在界面上，额度作为参考值跟在后面。
 
 这是设计上的取舍：认 baseURL 而不是认 provider id，所以你已有的配置不需要为这个插件改任何东西。
 
@@ -100,9 +100,9 @@ revision 的 `client.js`。
 
 因为慢，宿主侧是 `stale-while-revalidate`：过期就先给旧值、后台刷新，界面从不挂在一次 25 秒的请求上。数据年龄会出现在 tooltip 和插件配置页里 —— 读数最多就是 30 秒级新鲜，这是服务端决定的，做到更快只能造假。
 
-### 额度：`x-ratelimit-*` 响应头
+### 额度（仅展示）：`x-ratelimit-*` 响应头
 
-网关在**任何**正常响应上都会回：
+网关在**任何**正常响应上都会回这几个头：
 
 ```
 x-ratelimit-limit-user-daily-usd: 1
@@ -111,7 +111,13 @@ x-ratelimit-limit-user-rpm: 20
 x-ratelimit-remaining-user-rpm: 17
 ```
 
-没有「查额度」的独立端点，所以插件发一次 `max_tokens: 1` 的探针把额度读出来（实测 0.31 秒，成本可忽略，但会占 1 次 RPM）。探针有独立的 60 秒 TTL 与单飞，不与容量一起高频轮询；`quotaProbe: false` 可以完全关掉。
+**AMD 目前免费不限量，这些数字是名义值**，不构成实际限制。所以插件只把它们**展示出来**：
+
+- 不做任何门控 —— 不会因为「额度用完」禁用模型或拦截请求；
+- 不参与告警、不改变颜色、不进主读数，界面上弱化处理；
+- tooltip 里明确写了「仅供参考，不影响能否调用」。
+
+没有「查额度」的独立端点，所以插件发一次 `max_tokens: 1` 的探针把这些头读出来（实测 0.31 秒，成本可忽略，占 1 次 RPM）。探针有独立的 60 秒 TTL 与单飞，不与容量一起高频轮询。**觉得没必要就 `quotaProbe: false` 完全关掉** —— 关掉只少一个参考数字，容量读数不受影响。
 
 ### 模型发现
 
@@ -152,13 +158,13 @@ Radeon 的模型目录接口不返回 `reasoning_effort` 支持情况，只能�
 - 容量读数**最细只能到 ~30 秒**（上游 25 秒 TTFB + 缓存），不是秒级；
 - `full` 表示**并发预算已满**，不等于不能用 —— 所以任何地方都不做硬禁用，只标红；
 - 上游只返回「有流量」的模型，冷门模型没有读数；
-- 额度探针会消耗 1 次 RPM、极少量美元（`max_tokens: 1`）；
+- 额度是**名义值**（AMD 当前免费不限量），仅展示、不做门控；探针本身占 1 次 RPM；
 - 控制台内部端点可能变更；变更后容量会退回「暂无读数」，其余功能不受影响。
 
 ## 开发
 
 ```sh
-npm test                        # 41 项：缓存/单飞/退避、额度头解析、provider 探测、路由，
+npm test                        # 43 项：缓存/单飞/退避、额度头解析、provider 探测、路由，
                                 # 以及把客户端 bundle 真加载一遍的界面集成测试
 node scripts/smoke.mjs          # 真机冒烟：打真实端点，只打印容量与额度，不打印密钥
 ```

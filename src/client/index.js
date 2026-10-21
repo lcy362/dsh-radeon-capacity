@@ -276,12 +276,17 @@ window.__ModuleLoader__.load({
         parts.push(`● ${load.label} ${Math.round(load.utilization)}%`)
       }
       const quotaLabel = quotaText(quota)
-      if (quotaLabel !== null) parts.push(`额度 ${quotaLabel}`)
-      if (parts.length === 0) return null
+      // 额度只是参考：AMD 目前不按这个数限量，所以不并进主读数，另起一段弱化显示。
+      const quotaPart = quotaLabel === null ? null : `额度 ${quotaLabel}`
+      // 容量没读数时仍然出胶囊：额度虽然是参考值，但「这个模型现在没流量」本身也是信息。
+      if (parts.length === 0 && quotaPart === null) return null
       const rpm = quota?.rpm
       const title = [
         load === null ? '容量：暂无读数（上游只返回有流量的模型）' : `容量：${load.label}，并发配额已用 ${Math.round(load.utilization)}%（数据 ${ago(state?.capacity?.ageMs)}）`,
-        quotaLabel === null ? '额度：暂无读数' : `额度：当日剩余 ${quotaLabel}${typeof rpm?.remaining === 'number' ? `，本分钟剩余 ${rpm.remaining} 次` : ''}（数据 ${ago(state?.quota?.ageMs)}）`,
+        quotaLabel === null
+          ? '额度：暂无读数'
+          : `额度：网关回报当日剩余 ${quotaLabel}${typeof rpm?.remaining === 'number' ? `，本分钟剩余 ${rpm.remaining} 次` : ''}（数据 ${ago(state?.quota?.ageMs)}）`,
+        '额度仅为网关回报的参考值 —— AMD 当前免费不限量，不影响能否调用。',
       ].join('\n')
       return h(
         'span',
@@ -306,6 +311,9 @@ window.__ModuleLoader__.load({
           ? null
           : h('span', { style: { color: toneOf(load.state), fontSize: 9 } }, '●'),
         h('span', null, parts.join(' · ')),
+        quotaPart === null
+          ? null
+          : h('span', { style: { opacity: 0.55, fontSize: 10 } }, quotaPart),
       )
     }
 
@@ -693,10 +701,10 @@ window.__ModuleLoader__.load({
           : `暂无（${capacity?.error ?? '未知'}）`,
       ])
       rows.push([
-        '额度',
+        '额度（参考）',
         daily === null || daily === undefined
           ? `暂无（${quota?.error ?? '未知'}）`
-          : `当日剩余 $${Math.round(daily.remaining * 100) / 100} / $${daily.limit.toFixed(2)}`,
+          : `网关回报当日剩余 $${Math.round(daily.remaining * 100) / 100} / $${daily.limit.toFixed(2)}`,
       ])
 
       /** 已写入的模型 + 它们的实时容量，一张小表看清「写了什么、现在忙不忙」。 */
@@ -727,17 +735,12 @@ window.__ModuleLoader__.load({
 
       if (props?.view === 'summary') {
         const cap = capacity?.ok === true ? `${Object.keys(capacity.models).length} 个模型有读数` : '容量暂无'
-        const q = daily === null || daily === undefined
-          ? '额度暂无'
-          : `额度 $${Math.round(daily.remaining * 100) / 100}/$${daily.limit.toFixed(2)}`
         return h(
           'span',
           null,
           provider === null ? '未接入 Radeon provider —— 点「配置」写入' : `${provider.displayName}（${provider.id}）`,
           ' · ',
           cap,
-          ' · ',
-          q,
         )
       }
 
