@@ -65,6 +65,28 @@ test('GET /catalog 出静态模型表（供设置页渲染）', async () => {
   assert.equal(models.find((model) => model.id === 'DeepSeek-V4.1-Flash').input.includes('image'), true)
 })
 
+test('POST /config 不等容量刷新：写配置不能被 25 秒的容量请求拖住', async () => {
+  // 回归：之前 `await deps.refresh(true)` 让按钮卡在「写入中…」整整 25 秒，
+  // 而配置其实早就落库了。现在刷新是后台跑，响应立刻回来。
+  let refreshFinished = false
+  const routes = createRoutes({
+    state: async () => ({ provider: { id: 'amd' } }),
+    refresh: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5_000))
+      refreshFinished = true
+    },
+    writeConfig: async (body) => ({ entryId: 'llm-pi-ai', providerId: body.providerId }),
+  })
+  const req = makeReq('POST', `${ROUTE_PREFIX}/config`, { body: { providerId: 'amd' } })
+  const res = makeRes()
+  const started = Date.now()
+  await routes.handler(req, res)
+  const elapsed = Date.now() - started
+  assert.ok(elapsed < 1_000, `响应应当在 1 秒内返回，实际 ${elapsed}ms`)
+  assert.equal(refreshFinished, false, '刷新仍在后台跑，不该阻塞响应')
+  assert.equal(res.captured.status, 200)
+})
+
 test('POST /config 走写入并回状态；写入报错回 400', async () => {
   const seen = []
   let fail = false

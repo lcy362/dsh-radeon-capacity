@@ -26,7 +26,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
 
     /** 客户端版本号：改这个文件就顺手改它，便于确认界面上跑的是哪一版。 */
-    const CLIENT_VERSION = 'client@2026-10-21.2'
+    const CLIENT_VERSION = 'client@2026-10-21.3'
     /** 宿主路由前缀。 */
     const API = '/api/radeon-capacity'
 
@@ -320,7 +320,16 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** 一键配置表单。 */
+    /**
+     * 一键配置表单。
+     *
+     * 设计要点：**表单要能回答「现在是什么状态、按下去会发生什么」**，而不是一个
+     * 每次都得重新勾一遍的空表单。所以：
+     *   - 初始值来自宿主报回来的**真实已写入配置**（provider 定义里的模型清单），
+     *     不是目录里的全部模型；
+     *   - 每个模型标出「已写入 / 待新增 / 待移除」，提交按钮的文案与颜色跟着变
+     *     （新增 vs 修改），一眼能看出这次是加东西还是改东西。
+     */
     function ConfigForm(props) {
       const state = props.state
       const [catalog, setCatalog] = React.useState(null)
@@ -332,7 +341,6 @@ window.__ModuleLoader__.load({
       const [extraSelected, setExtraSelected] = React.useState([])
       const [busy, setBusy] = React.useState('')
       const [message, setMessage] = React.useState(null)
-
       React.useEffect(() => {
         let alive = true
         fetch(`${API}/catalog`)
@@ -340,7 +348,6 @@ window.__ModuleLoader__.load({
           .then((body) => {
             if (!alive || body?.ok !== true) return
             setCatalog(body.value)
-            setSelected((current) => current ?? body.value.models.map((model) => model.id))
           })
           .catch(() => {})
         return () => {
@@ -364,16 +371,32 @@ window.__ModuleLoader__.load({
         refreshDiscovered()
       }, [refreshDiscovered])
 
-      React.useEffect(() => {
-        if (state?.suggested === undefined || state?.suggested === null) return
-        setProviderId((current) => (current === '' ? state.provider?.id ?? state.suggested.providerId : current))
-        setApiKeyEnv((current) => (current === '' ? state.provider?.apiKeyEnv ?? state.suggested.apiKeyEnv : current))
-      }, [state?.provider?.id, state?.provider?.apiKeyEnv])
-
+      /** 宿主报回来的、真正写进 provider 的模型 id。 */
+      const written = Array.isArray(state?.provider?.modelIds) ? state.provider.modelIds : []
+      const hasProvider = state?.provider !== null && state?.provider !== undefined
       const models = catalog?.models ?? []
+
+      /**
+       * 表单初值一律**派生**，不用 effect 回填。
+       *
+       * 用 effect 回填过一次，踩了个真坑：面板可能在 `/state` 还没回来时就先渲染，
+       * 那时 `hasProvider` 还是 false，于是「默认全选」被当成用户的选择固定下来；
+       * 等真实配置到了，回填又因为「已经初始化过」而跳过 —— 界面显示的是全部模型，
+       * 实际写入的只有几个。派生写法下 `selected === null` 一直是「跟随真实配置」，
+       * 用户一动手才变成他自己的选择。
+       */
+      const initialSelection = state === null || state === undefined
+        ? null
+        : hasProvider
+          ? written.filter((id) => models.some((model) => model.id === id))
+          : models.map((model) => model.id)
+      const chosen = Array.isArray(selected) ? selected : (initialSelection ?? [])
+      const effectiveProviderId = providerId !== '' ? providerId : (state?.provider?.id ?? state?.suggested?.providerId ?? '')
+      const effectiveApiKeyEnv = apiKeyEnv !== '' ? apiKeyEnv : (state?.provider?.apiKeyEnv ?? state?.suggested?.apiKeyEnv ?? '')
+
       const toggle = (id) => {
         setSelected((current) => {
-          const list = Array.isArray(current) ? [...current] : []
+          const list = Array.isArray(current) ? [...current] : [...chosen]
           const at = list.indexOf(id)
           if (at === -1) list.push(id)
           else list.splice(at, 1)
@@ -390,27 +413,38 @@ window.__ModuleLoader__.load({
         })
       }
 
+      // ── 差异：这次提交会新增什么、移除什么 ──────────────────────────────────
+      const toAdd = chosen.filter((id) => !written.includes(id))
+      const toRemove = written.filter((id) => !chosen.includes(id))
+      const extraList = (discovered ?? []).filter((model) => extraSelected.includes(model.id))
+      const willWrite = [...chosen, ...extraList.map((model) => model.id)]
+      const isCreate = !hasProvider
+      const isNoop = !isCreate && toAdd.length === 0 && toRemove.length === 0 && extraList.length === 0
+      const changesProviderId = hasProvider && state?.provider?.id !== effectiveProviderId
+      const changesKeyEnv = hasProvider && state?.provider?.apiKeyEnv !== effectiveApiKeyEnv
+
       const save = async () => {
         setBusy('save')
         setMessage(null)
         try {
           const value = await post('/config', {
-            providerId,
-            apiKeyEnv,
+            providerId: effectiveProviderId,
+            apiKeyEnv: effectiveApiKeyEnv,
             ...(apiKey.trim() === '' ? {} : { apiKey: apiKey.trim() }),
-            modelIds: Array.isArray(selected) ? selected : [],
-            extraModels: (discovered ?? [])
-              .filter((model) => extraSelected.includes(model.id))
-              .map((model) => ({ id: model.id, contextWindow: model.contextWindow })),
+            modelIds: chosen,
+            extraModels: extraList.map((model) => ({ id: model.id, contextWindow: model.contextWindow })),
           })
           setApiKey('')
+          setExtraSelected([])
           // 密钥刚落库，这时候才发现得了新模型。
           refreshDiscovered()
-          const written = value?.written
+          const done = value?.written
           setMessage({
             tone: 'ok',
-            text: `已写入 ${written?.entryId ?? 'llm-pi-ai'} 的 providers.${written?.providerId ?? providerId}` +
-              `${written?.credentialWritten ? '，并保存了 API 密钥' : ''}。配置在用户层，卸载本插件后依然有效。`,
+            text: `已${isCreate ? '新增' : '更新'} providers.${done?.providerId ?? providerId}` +
+              `（共 ${willWrite.length} 个模型）` +
+              `${done?.credentialWritten ? '，并保存了 API 密钥' : ''}。` +
+              '配置在用户层，卸载本插件后依然有效。容量读数会在几十秒内自动出现。',
           })
         } catch (error) {
           setMessage({ tone: 'err', text: error instanceof Error ? error.message : String(error) })
@@ -452,6 +486,31 @@ window.__ModuleLoader__.load({
         fontSize: 12,
         cursor: 'pointer',
       }
+      const chip = (text, color, key) =>
+        h('span', {
+          key,
+          style: {
+            display: 'inline-block',
+            fontSize: 10,
+            lineHeight: 1.6,
+            padding: '0 6px',
+            marginLeft: 6,
+            borderRadius: 999,
+            color,
+            border: `1px solid ${color}`,
+            whiteSpace: 'nowrap',
+          },
+        }, text)
+
+      /** 每个模型在「已写入 / 本次将写入」里的状态。 */
+      const modelState = (id) => {
+        const inWritten = written.includes(id)
+        const inChosen = chosen.includes(id)
+        if (inWritten && inChosen) return { tag: '已写入', color: '#12b76a' }
+        if (!inWritten && inChosen) return { tag: '新增', color: '#2e90fa' }
+        if (inWritten && !inChosen) return { tag: '将移除', color: '#d92d20' }
+        return null
+      }
 
       return h(
         'div',
@@ -465,46 +524,68 @@ window.__ModuleLoader__.load({
           h('label', { style: labelStyle }, 'provider id（模型选择器里的路由名）'),
           h('input', {
             style: inputStyle,
-            value: providerId,
+            value: effectiveProviderId,
             placeholder: 'amd',
             onChange: (event) => setProviderId(event.target.value),
           }),
+          changesProviderId
+            ? h('div', { style: { fontSize: 10, color: '#f79009', marginTop: 4 } },
+              `注意：当前已写入的是 ${state?.provider?.id}，改成 ${effectiveProviderId} 会另建一个 provider，旧的那个仍然保留。`)
+            : null,
           h('label', { style: labelStyle }, '凭据引用名（apiKeyEnv）'),
           h('input', {
             style: inputStyle,
-            value: apiKeyEnv,
+            value: effectiveApiKeyEnv,
             placeholder: 'AMD_API_KEY',
             onChange: (event) => setApiKeyEnv(event.target.value),
           }),
+          changesKeyEnv
+            ? h('div', { style: { fontSize: 10, color: '#f79009', marginTop: 4 } },
+              `注意：当前已写入的是 ${state?.provider?.apiKeyEnv}，改这里不会搬走已存的密钥，需要重新填一次。`)
+            : null,
           h('label', { style: labelStyle }, 'API 密钥（rc-…，留空表示不改动）'),
           h('input', {
             style: inputStyle,
             type: 'password',
             value: apiKey,
-            placeholder: 'rc-xxxxxxxx',
+            placeholder: state?.credential?.configured === true ? '已配置，留空即保持不变' : 'rc-xxxxxxxx',
             autoComplete: 'off',
             onChange: (event) => setApiKey(event.target.value),
           }),
-          h('label', { style: labelStyle }, `收录模型（${Array.isArray(selected) ? selected.length : 0} / ${models.length}）`),
+        ),
+
+        h(Section, { title: `收录模型（已选 ${chosen.length} / 目录 ${models.length}）` },
+          h('div', { style: { fontSize: 11, opacity: 0.75, marginBottom: 6, lineHeight: 1.7 } },
+            hasProvider
+              ? `当前已写入 ${written.length} 个模型。绿色=已写入，蓝色=本次新增，红色=本次将移除。`
+              : '还没有写入过 provider —— 这次提交是「新增」，默认全选实测过的模型。',
+          ),
           h('div', {
             style: {
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
               gap: '2px 12px',
               fontSize: 12,
             },
           },
             models.map((model) => {
-              const checked = Array.isArray(selected) && selected.includes(model.id)
+              const checked = chosen.includes(model.id)
+              const mark = modelState(model.id)
+              const load = loadOf(state, model.id)
               return h('label', { key: model.id, style: { display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' } },
                 h('input', { type: 'checkbox', checked, onChange: () => toggle(model.id) }),
-                h('span', null, model.id),
+                h('span', { style: { opacity: mark !== null && mark.tag === '将移除' ? 0.45 : 1 } }, model.id),
+                mark === null ? null : chip(mark.tag, mark.color, `m-${model.id}`),
+                load === null
+                  ? null
+                  : h('span', { style: { color: toneOf(load.state), fontSize: 10 } }, `● ${Math.round(load.utilization)}%`),
                 h('span', { style: { opacity: 0.55, fontSize: 10 } },
                   model.tiers.length === 0 ? '非推理' : `${model.tiers.length} 档`),
               )
             }),
           ),
         ),
+
         Array.isArray(discovered) && discovered.length > 0
           ? h(Section, { title: `线上还有 ${discovered.length} 个未实测模型` },
             h('div', { style: { fontSize: 11, opacity: 0.75, marginBottom: 6, lineHeight: 1.7 } },
@@ -513,22 +594,60 @@ window.__ModuleLoader__.load({
             h('div', {
               style: {
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
                 gap: '2px 12px',
                 fontSize: 12,
               },
             },
-              discovered.map((model) => h('label', { key: model.id, style: { display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' } },
-                h('input', { type: 'checkbox', checked: extraSelected.includes(model.id), onChange: () => toggleExtra(model.id) }),
-                h('span', null, model.id),
-                h('span', { style: { opacity: 0.55, fontSize: 10 } }, '未实测'),
-              )),
+              discovered.map((model) => {
+                const already = written.includes(model.id)
+                return h('label', { key: model.id, style: { display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' } },
+                  h('input', {
+                    type: 'checkbox',
+                    checked: already || extraSelected.includes(model.id),
+                    disabled: already,
+                    onChange: () => toggleExtra(model.id),
+                  }),
+                  h('span', null, model.id),
+                  already ? chip('已写入', '#12b76a', `d-${model.id}`) : chip('未实测', '#98a2b3', `d-${model.id}`),
+                )
+              }),
             ),
           )
           : null,
-        h('div', { style: { display: 'flex', gap: 8, marginTop: 14 } },
-          h('button', { style: buttonStyle, disabled: busy !== '', onClick: save },
-            busy === 'save' ? '写入中…' : '写入配置'),
+
+        // ── 本次提交会做什么 ────────────────────────────────────────────────
+        h('div', {
+          style: {
+            marginTop: 14,
+            padding: '8px 10px',
+            borderRadius: 8,
+            border: '1px solid rgba(128,128,128,0.28)',
+            fontSize: 11,
+            lineHeight: 1.8,
+          },
+        },
+          h('div', { style: { fontWeight: 700, marginBottom: 2 } },
+            isCreate ? '本次操作：新增 provider' : isNoop ? '本次操作：无变化' : '本次操作：修改 provider'),
+          hasProvider
+            ? h('div', null, `当前：providers.${state.provider.id} · ${written.length} 个模型`)
+            : h('div', null, '当前：尚未写入'),
+          toAdd.length > 0 ? h('div', { style: { color: '#2e90fa' } }, `新增 ${toAdd.length} 个：${toAdd.join('、')}`) : null,
+          toRemove.length > 0 ? h('div', { style: { color: '#d92d20' } }, `移除 ${toRemove.length} 个：${toRemove.join('、')}`) : null,
+          extraList.length > 0 ? h('div', { style: { color: '#2e90fa' } }, `新增未实测 ${extraList.length} 个：${extraList.map((model) => model.id).join('、')}`) : null,
+          isNoop ? h('div', { style: { opacity: 0.7 } }, '模型清单与已写入的一致；填了密钥仍会保存密钥。') : null,
+        ),
+
+        h('div', { style: { display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' } },
+          h('button', {
+            style: {
+              ...buttonStyle,
+              ...(isCreate || (!isNoop && (toAdd.length > 0 || extraList.length > 0)) ? { borderColor: '#2e90fa' } : {}),
+            },
+            disabled: busy !== '',
+            onClick: save,
+          },
+            busy === 'save' ? '写入中…' : isCreate ? '新增 provider' : isNoop ? '重新写入（无变化）' : '保存修改'),
           h('button', { style: buttonStyle, disabled: busy !== '', onClick: reload },
             busy === 'reload' ? '刷新中…' : '立即刷新容量'),
         ),
@@ -580,6 +699,32 @@ window.__ModuleLoader__.load({
           : `当日剩余 $${Math.round(daily.remaining * 100) / 100} / $${daily.limit.toFixed(2)}`,
       ])
 
+      /** 已写入的模型 + 它们的实时容量，一张小表看清「写了什么、现在忙不忙」。 */
+      const writtenModels = Array.isArray(provider?.modelIds) ? provider.modelIds : []
+      const modelTable = writtenModels.length === 0
+        ? null
+        : h('div', { style: { marginTop: 6 } },
+          h('div', { style: { fontSize: 11, opacity: 0.75, marginBottom: 4 } },
+            `已写入 ${writtenModels.length} 个模型：`),
+          h('table', { style: { fontSize: 12, borderCollapse: 'collapse' } },
+            h('tbody', null,
+              writtenModels.map((id) => {
+                const load = loadOf(state, id)
+                return h('tr', { key: id },
+                  h('td', { style: { padding: '1px 14px 1px 0', whiteSpace: 'nowrap' } },
+                    h('span', { style: { color: load === null ? '#98a2b3' : toneOf(load.state), fontSize: 10 } }, '●'),
+                    ' ',
+                    id),
+                  h('td', { style: { padding: '1px 0', opacity: 0.75, whiteSpace: 'nowrap' } },
+                    load === null
+                      ? '无读数'
+                      : `${load.label ?? load.state} ${Math.round(load.utilization)}%`),
+                )
+              }),
+            ),
+          ),
+        )
+
       if (props?.view === 'summary') {
         const cap = capacity?.ok === true ? `${Object.keys(capacity.models).length} 个模型有读数` : '容量暂无'
         const q = daily === null || daily === undefined
@@ -609,6 +754,7 @@ window.__ModuleLoader__.load({
               )),
             ),
           ),
+          modelTable,
         ),
         h(ConfigForm, { state }),
       )

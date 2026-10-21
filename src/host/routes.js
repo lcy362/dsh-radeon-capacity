@@ -177,8 +177,9 @@ export function createRoutes(deps) {
           }
           try {
             const written = await deps.writeConfig(body)
-            // 写完立刻重探一次：容量依赖新凭据，额度也顺便刷新。
-            await deps.refresh(true)
+            // 刷新**不 await**：容量端点 TTFB 约 25 秒，等它会让「写入中…」卡死 25 秒，
+            // 而配置其实早就落库了。后台刷新，界面下一次轮询自然拿到新读数。
+            deps.refresh?.(true)?.catch?.(() => {})
             sendJson(res, 200, { ok: true, value: { written, state: await deps.state() } })
           } catch (error) {
             sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
