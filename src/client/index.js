@@ -633,14 +633,15 @@ window.__ModuleLoader__.load({
 
       // 2) 输入框下方胶囊。`modelDirectories` 由官方的模型选择插件提供，取不到时
       //    胶囊就不注册 —— 少一个挂点，但不会让整个客户端半区加载失败。
-      ctx.inject(['modelDirectories'], () => {
+      ctx.inject(['modelDirectories'], (modelCtx) => {
+        const directories = modelCtx.modelDirectories
         ctx.slots.inject('conversation.composer.dock', () =>
           ctx.slots.register(
             {
               name: 'conversation.composer.dock',
               id: 'radeon-capacity',
               order: 20,
-              inject: (sessionId) => ({ directory: directoryFor(ctx.modelDirectories, sessionId) }),
+              inject: (sessionId) => ({ directory: directoryFor(directories, sessionId) }),
             },
             CapacityPill,
           ),

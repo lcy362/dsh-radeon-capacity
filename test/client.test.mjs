@@ -93,9 +93,8 @@ async function loadClient({ state = null } = {}) {
         return () => {}
       },
     },
-    inject: (_names, callback) => callback(),
+    inject: (_names, callback) => callback({ modelDirectories: { directoryFor: () => directory } }),
     effect: (fn) => fn(),
-    modelDirectories: { directoryFor: () => directory },
   }
   return { exports: module, registrations, ctx }
 }
