@@ -9,7 +9,7 @@ import test from 'node:test'
  *   1. 单文件 bundle 的包装格式能被解析、factory 能执行；
  *   2. 没有 Radeon provider 时**不**注册模型标注槽（不顶掉内核的 1017）；
  *   3. 探测到 provider 之后徽章注册、渲染出百分比；
- *   4. 胶囊按当前选择决定出不出。
+ *   4. 行内读数按当前选择决定出不出。
  */
 
 /**
@@ -175,6 +175,7 @@ async function loadClient({ state = null } = {}) {
       getSnapshot: () => ({ current: { provider: 'amd', model: 'GLM-5.3-Flash' }, status: 'ready' }),
     },
   }
+  const locales = new Map()
   const ctx = {
     slots: {
       inject: (_name, callback) => callback(),
@@ -185,7 +186,19 @@ async function loadClient({ state = null } = {}) {
     },
     inject: (_names, callback) => callback({ modelDirectories: { directoryFor: () => directory } }),
     effect: (fn) => fn(),
+    locale: {
+      register: (ns, dicts) => {
+        locales.set(ns, dicts)
+        return () => {}
+      },
+      bind: (ns) => (key, params) => {
+        const template = locales.get(ns)?.en?.[key] ?? key
+        if (params === undefined || params === null) return template
+        return template.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match))
+      },
+    },
   }
+  ctx.__locales = locales
   return { exports: module, registrations, ctx }
 }
 
@@ -225,8 +238,10 @@ test('没有 Radeon provider 时不注册模型标注槽（不顶掉内核 1017�
     registrations.some((row) => row.spec.name === 'conversation.input.model.label'),
     false,
   )
-  // 胶囊与插件配置页照常注册
-  assert.equal(registrations.some((row) => row.spec.name === 'conversation.composer.dock'), true)
+  // 行内读数与插件配置页照常注册
+  assert.equal(registrations.some((row) => row.spec.name === 'conversation.input.right'), true)
+  // 旧挂点（输入框下方）不再使用：它只在 composer 变体渲染，选定未开始会话时会消失
+  assert.equal(registrations.some((row) => row.spec.name === 'conversation.composer.dock'), false)
   assert.equal(registrations.some((row) => row.spec.name === 'plugins.bundle.config'), true)
   assert.equal(registrations.some((row) => row.spec.name === 'plugins.row.config'), true)
   // 明确**不**往 DSH 设置页加分区
@@ -309,14 +324,14 @@ test('配置页：把已写入的配置和本次差异都摆出来', async () =>
   const flat = texts(card.component({ view: 'page' })).join(' ')
   // 已写入的状态要能被看见：provider id、已写入的模型、以及每个模型的状态标签
   assert.match(flat, /providers\.amd/)
-  assert.match(flat, /已写入 2 个模型/)
-  assert.match(flat, /GLM-5\.3-Flash 已写入/)
+  assert.match(flat, /2 models are written today/)
+  assert.match(flat, /GLM-5\.3-Flash written/)
   // 目录里多出来的那个是「可新增」，不是已写入
   assert.match(flat, /MiniCPM5-2B/)
-  assert.equal(/MiniCPM5-2B 已写入/.test(flat), false)
+  assert.equal(/MiniCPM5-2B written/.test(flat), false)
   // 勾选与已写入一致 → 无变化
-  assert.match(flat, /本次操作：无变化/)
-  assert.equal(flat.includes('新增 provider'), false)
+  assert.match(flat, /This will: change nothing/)
+  assert.equal(flat.includes('Add provider'), false)
 
   // 再勾一个没写入的 → 变成「新增 N 个」+「保存修改」
   const tree = card.component({ view: 'page' })
@@ -325,9 +340,9 @@ test('配置页：把已写入的配置和本次差异都摆出来', async () =>
   box.props.onChange()
   await tick()
   const after = texts(card.component({ view: 'page' })).join(' ')
-  assert.match(after, /新增 1 个：MiniCPM5-2B/)
-  assert.match(after, /保存修改/)
-  assert.match(after, /MiniCPM5-2B 新增/)
+  assert.match(after, /Add 1: MiniCPM5-2B/)
+  assert.match(after, /Save changes/)
+  assert.match(after, /MiniCPM5-2B add/)
 })
 
 test('配置页：勾选状态跟随真实配置，不会把「全部模型」当成已写入', async () => {
@@ -341,7 +356,7 @@ test('配置页：勾选状态跟随真实配置，不会把「全部模型」�
   await tick()
   const flat = texts(card.component({ view: 'page' })).join(' ')
   // 目录 3 个，已写入 2 个 → 勾选数必须是 2，不是 3
-  assert.match(flat, /已选 2 \/ 目录 3/)
+  assert.match(flat, /2 selected \/ 3 in catalog/)
 })
 
 test('状态区把已写入的模型连同实时容量列出来', async () => {
@@ -350,10 +365,10 @@ test('状态区把已写入的模型连同实时容量列出来', async () => {
   await tick()
   const card = registrations.find((row) => row.spec.name === 'plugins.bundle.config')
   const flat = texts(card.component({ view: 'page' })).join(' ')
-  assert.match(flat, /已写入 2 个模型/)
+  assert.match(flat, /Written models \(2\)/)
   // 有读数的显示状态+百分比，没读数的明确写「无读数」而不是留空
   assert.match(flat, /GLM-5\.3-Flash Busy 55%/)
-  assert.match(flat, /Qwen3\.8-27B 无读数/)
+  assert.match(flat, /Qwen3\.8-27B no reading/)
 })
 
 test('配置页：没有 provider 时按「新增」呈现', async () => {
@@ -364,8 +379,8 @@ test('配置页：没有 provider 时按「新增」呈现', async () => {
   texts(card.component({ view: 'page' }))
   await tick()
   const flat = texts(card.component({ view: 'page' })).join(' ')
-  assert.match(flat, /新增 provider/)
-  assert.match(flat, /尚未写入/)
+  assert.match(flat, /Add provider/)
+  assert.match(flat, /Now: nothing written/)
 })
 
 test('配置页：summary 视图是一行短文案，不塞整块面板', async () => {
@@ -375,50 +390,74 @@ test('配置页：summary 视图是一行短文案，不塞整块面板', async 
   const card = registrations.find((row) => row.spec.name === 'plugins.bundle.config')
   const summary = texts(card.component({ view: 'summary' })).join('')
   assert.ok(summary.length > 0)
-  assert.equal(summary.includes('接口配置'), false)
+  assert.equal(summary.includes('Endpoint'), false)
 })
 
-test('胶囊：容量为主，额度只是弱化的参考值', async () => {
+test('配置页：中英双语，跟随界面语言切换', async () => {
+  // 同一个组件，locale.bind 返回 zh 时必须是中文，返回 en 时必须是英文。
   const { exports, registrations, ctx } = await loadClient({ state: READY_STATE })
   exports.apply(ctx)
   await tick()
-  const pill = registrations.find((row) => row.spec.name === 'conversation.composer.dock')
-  const directory = { store: { subscribe: () => () => {}, getSnapshot: () => ({ current: { provider: 'amd', model: 'GLM-5.3-Flash' } }) } }
-  const node = pill.component({ directory })
-  // 额度单独一个弱化元素，不和容量挤在同一段文字里
-  const flat = texts(node)
-  assert.ok(flat.some((text) => /Busy 55%/.test(text)), '容量主读数')
-  assert.ok(flat.some((text) => /额度/.test(text)), '额度仍展示')
-  assert.equal(flat.some((text) => /Busy 55%.*额度/.test(text)), false, '额度不该并进容量那一段')
-  // tooltip 要说明额度只是参考、不影响调用
-  assert.match(node.props.title, /AMD 当前免费不限量/)
+  const card = registrations.find((row) => row.spec.name === 'plugins.bundle.config')
+
+  // 桩里默认取 en（见 loadClient 的 locale.bind）
+  const en = texts(card.component({ view: 'page' })).join(' ')
+  assert.match(en, /Current status/)
+  assert.match(en, /Refresh capacity/)
+  assert.equal(/[\u4e00-\u9fff]/.test(en), false, '英文模式下不该混中文')
+
+  // 切到中文：直接喂 t
+  const zhT = (key, params) => {
+    const template = ctx.__locales.get('dsh-radeon-capacity')?.zh?.[key] ?? key
+    if (params === undefined || params === null) return template
+    return template.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match))
+  }
+  const zh = texts(card.component({ view: 'page', t: zhT })).join(' ')
+  assert.match(zh, /当前状态/)
+  assert.match(zh, /立即刷新容量/)
 })
 
-test('胶囊：容量没读数时仍出胶囊，因为「没流量」本身是信息', async () => {
+test('行内读数：挂模型选择器同一行，出容量与额度', async () => {
+  const { exports, registrations, ctx } = await loadClient({ state: READY_STATE })
+  exports.apply(ctx)
+  await tick()
+  const row = registrations.find((row) => row.spec.name === 'conversation.input.right')
+  assert.ok(row !== undefined, '必须挂在 conversation.input.right')
+
+  const directory = { store: { subscribe: () => () => {}, getSnapshot: () => ({ current: { provider: 'amd', model: 'GLM-5.3-Flash' } }) } }
+  const node = row.component({ directory })
+  const flat = texts(node)
+  assert.ok(flat.some((text) => /Busy 55%/.test(text)), '容量主读数')
+  assert.ok(flat.some((text) => /0\.97/.test(text)), '额度仍展示')
+  // 额度单独一个弱化元素，不和容量挤在同一段文字里
+  assert.equal(flat.some((text) => /Busy 55%.*0\.97/.test(text)), false, '额度不该并进容量那一段')
+  // 文案全英文
+  assert.equal(/[\u4e00-\u9fff]/.test(node.props.title), false, 'tooltip 必须英文')
+  assert.equal(flat.some((text) => /[\u4e00-\u9fff]/.test(text)), false, '读数文案必须英文')
+  // tooltip 要说明额度只是参考、不影响调用
+  assert.match(node.props.title, /AMD is currently free and unmetered/)
+})
+
+test('行内读数：选中非 Radeon 模型时不出', async () => {
+  const { exports, registrations, ctx } = await loadClient({ state: READY_STATE })
+  exports.apply(ctx)
+  await tick()
+  const row = registrations.find((row) => row.spec.name === 'conversation.input.right')
+  const other = { store: { subscribe: () => () => {}, getSnapshot: () => ({ current: { provider: 'trae', model: 'x' } }) } }
+  assert.equal(row.component({ directory: other }), null)
+})
+
+test('行内读数：容量没读数时仍出读数，因为「没流量」本身是信息', async () => {
   const noLoad = JSON.parse(JSON.stringify(READY_STATE))
   noLoad.capacity = { ok: true, models: {}, fetchedAt: Date.now(), ageMs: 1000, error: null }
   const { exports, registrations, ctx } = await loadClient({ state: noLoad })
   exports.apply(ctx)
   await tick()
-  const pill = registrations.find((row) => row.spec.name === 'conversation.composer.dock')
+  const row = registrations.find((row) => row.spec.name === 'conversation.input.right')
   const directory = { store: { subscribe: () => () => {}, getSnapshot: () => ({ current: { provider: 'amd', model: 'GLM-5.3-Flash' } }) } }
-  const node = pill.component({ directory })
+  const node = row.component({ directory })
   assert.ok(node !== null, '不该整个消失')
-  assert.match(texts(node).join(''), /额度/)
-})
-
-test('胶囊：选中 Radeon 模型时出容量与额度，选别家时不出', async () => {
-  const { exports, registrations, ctx } = await loadClient({ state: READY_STATE })
-  exports.apply(ctx)
-  await tick()
-  const pill = registrations.find((row) => row.spec.name === 'conversation.composer.dock')
-  assert.ok(pill !== undefined)
-
-  const directory = { store: { subscribe: () => () => {}, getSnapshot: () => ({ current: { provider: 'amd', model: 'GLM-5.3-Flash' } }) } }
-  const rendered = texts(pill.component({ directory })).join('')
-  assert.match(rendered, /Busy 55%/)
-  assert.match(rendered, /0\.97/)
-
-  const other = { store: { subscribe: () => () => {}, getSnapshot: () => ({ current: { provider: 'trae', model: 'x' } }) } }
-  assert.equal(pill.component({ directory: other }), null)
+  const flat = texts(node).join('')
+  assert.match(flat, /No reading/)
+  assert.match(flat, /0\.97/)
 })

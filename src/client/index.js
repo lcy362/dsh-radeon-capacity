@@ -10,10 +10,18 @@
  *      容量徽章（●idle / ●busy / ●full + 百分比）。这个槽声明为 `kind: "single"`，
  *      只有 `priority` 更靠前的那一条会被渲染，所以注册时要 `priority: -1`，
  *      并且**必须自己输出模型名**（`fallback: model.name` 只在槽里一条都没有时生效）。
- *   2. `conversation.composer.dock` —— 输入框下方胶囊：当前模型的容量 + 额度。
+ *   2. `conversation.input.right` —— **模型选择器同一行**的容量读数。
+ *      这是 WorkBuddy / Trae 挂积分的那个槽：它和 `conversation.input.model` 在
+ *      同一个 `standardControls` 里，渲染顺序就在模型选择器左边，所以读数跟模型名
+ *      是并排的，而不是掉到输入框下方。选好模型、还没开始会话时同样显示。
+ *      （早先用的是 `conversation.composer.dock`，那个槽只在 `variant === "composer"`
+ *      时渲染 —— 新会话是 `hero` 变体，于是"选定但未开始会话"整个不显示。）
  *   3. `plugins.bundle.config` / `plugins.row.config` —— 配置页长在「设置 → 插件」
  *      里本插件自己的页面上（状态、一键写入 provider、模型发现），**不往 DSH
  *      设置页加分区**。
+ *
+ * 语言：界面读数一律**英文**（跟随 AMD 官方的英文术语 idle/busy/full）；配置页
+ * 走 DSH 的 locale 机制，中英双语，跟随界面语言。
  *
  * 徽章是**先探测、后注册**：没有 Radeon provider 时根本不占那个 single 槽，
  * 不会把内核自带的模型标注顶掉。
@@ -25,8 +33,146 @@ window.__ModuleLoader__.load({
     const primitives = require('@deepseek-ai/dsh-client-ui-primitives')
     const h = React.createElement
 
+    // ── 语言 ────────────────────────────────────────────────────────────────
+    /**
+     * 两套文案。
+     *
+     * 读数（徽章 / 行内读数）**只用英文**：`idle / busy / full` 是 AMD 控制台自己的
+     * 英文术语，翻成中文反而和官方界面对不上。配置页走 DSH 的 locale 机制，
+     * 中英双语跟随界面语言。
+     */
+    const LOCALE_NS = 'dsh-radeon-capacity'
+    const zh = {
+      'row.provider': '已接入 provider',
+      'row.endpoint': '端点',
+      'row.credential': '凭据引用',
+      'row.models': '模型数',
+      'row.capacity': '容量',
+      'row.quota': '额度（参考）',
+      'state.none': '未发现 —— 可以在下面一键写入，或先到 设置 → 模型 里自行配置',
+      'state.written': '已写入 {count} 个模型',
+      'capacity.ok': '{count} 个模型有读数（{ago}）',
+      'capacity.none': '暂无（{error}）',
+      'quota.ok': '网关回报当日剩余 {left} / {limit}',
+      'quota.none': '暂无（{error}）',
+      'summary.noProvider': '未接入 Radeon provider —— 点「配置」写入',
+      'summary.capacity': '{count} 个模型有读数',
+      'summary.noCapacity': '容量暂无',
+      'models.title': '已写入的模型（{count}）',
+      'models.noReading': '无读数',
+      'section.status': '当前状态',
+      'section.api': '接口配置',
+      'section.apiHelp': '写入的是 DSH 用户层配置（profile 补丁），不是本插件内部 —— 所以卸载本插件后 provider 仍然可用。凭据只经过宿主内存，不会回传给浏览器。',
+      'field.providerId': 'provider id（模型选择器里的路由名）',
+      'field.apiKeyEnv': '凭据引用名（apiKeyEnv）',
+      'field.apiKey': 'API 密钥（rc-…，留空表示不改动）',
+      'field.apiKeySet': '已配置，留空即保持不变',
+      'warn.providerId': '注意：当前已写入的是 {current}，改成 {next} 会另建一个 provider，旧的那个仍然保留。',
+      'warn.apiKeyEnv': '注意：当前已写入的是 {current}，改这里不会搬走已存的密钥，需要重新填一次。',
+      'models.header': '收录模型（已选 {chosen} / 目录 {total}）',
+      'models.helpWritten': '当前已写入 {count} 个模型。绿色=已写入，蓝色=本次新增，红色=本次将移除。',
+      'models.helpNew': '还没有写入过 provider —— 这次提交是「新增」，默认全选实测过的模型。',
+      'models.nonReasoning': '非推理',
+      'models.tiers': '{count} 档',
+      'discovered.title': '线上还有 {count} 个未实测模型',
+      'discovered.help': '档位表是实测快照，这几个是上游新加的。勾上会以「不声明思考档位」的方式写入 —— 猜档位会导致 400，关掉至少能正常对话。',
+      'tag.written': '已写入',
+      'tag.add': '新增',
+      'tag.remove': '将移除',
+      'tag.unmeasured': '未实测',
+      'action.create': '本次操作：新增 provider',
+      'action.noop': '本次操作：无变化',
+      'action.modify': '本次操作：修改 provider',
+      'action.current': '当前：providers.{id} · {count} 个模型',
+      'action.currentNone': '当前：尚未写入',
+      'action.add': '新增 {count} 个：{list}',
+      'action.remove': '移除 {count} 个：{list}',
+      'action.addExtra': '新增未实测 {count} 个：{list}',
+      'action.noopHelp': '模型清单与已写入的一致；填了密钥仍会保存密钥。',
+      'button.create': '新增 provider',
+      'button.save': '保存修改',
+      'button.rewrite': '重新写入（无变化）',
+      'button.saving': '写入中…',
+      'button.refresh': '立即刷新容量',
+      'button.refreshing': '刷新中…',
+      'done.create': '已新增 providers.{id}（共 {count} 个模型）{credential}。配置在用户层，卸载本插件后依然有效。容量读数会在几十秒内自动出现。',
+      'done.update': '已更新 providers.{id}（共 {count} 个模型）{credential}。配置在用户层，卸载本插件后依然有效。容量读数会在几十秒内自动出现。',
+      'done.credential': '，并保存了 API 密钥',
+      'done.refresh': '已重新拉取容量与额度。',
+    }
+    const en = {
+      'row.provider': 'Provider',
+      'row.endpoint': 'Endpoint',
+      'row.credential': 'Credential ref',
+      'row.models': 'Models',
+      'row.capacity': 'Capacity',
+      'row.quota': 'Quota (reference)',
+      'state.none': 'not found — write one below, or configure it under Settings → Models first',
+      'state.written': '{count} models written',
+      'capacity.ok': '{count} models reporting ({ago})',
+      'capacity.none': 'none ({error})',
+      'quota.ok': 'gateway reports {left} / {limit} left today',
+      'quota.none': 'none ({error})',
+      'summary.noProvider': 'no Radeon provider — click Configure to write one',
+      'summary.capacity': '{count} models reporting',
+      'summary.noCapacity': 'no capacity reading',
+      'models.title': 'Written models ({count})',
+      'models.noReading': 'no reading',
+      'section.status': 'Current status',
+      'section.api': 'Endpoint',
+      'section.apiHelp': 'This writes DSH user-layer config (the profile patch), not plugin-internal state — so the provider keeps working after you uninstall this plugin. The key only passes through host memory and is never sent back to the browser.',
+      'field.providerId': 'provider id (the route name in the model picker)',
+      'field.apiKeyEnv': 'credential ref (apiKeyEnv)',
+      'field.apiKey': 'API key (rc-…, leave empty to keep the current one)',
+      'field.apiKeySet': 'already configured — leave empty to keep it',
+      'warn.providerId': 'Heads up: {current} is what is written today. Renaming to {next} creates a second provider; the old one stays.',
+      'warn.apiKeyEnv': 'Heads up: {current} is what is written today. Changing this does not move the stored key — you need to enter it again.',
+      'models.header': 'Models ({chosen} selected / {total} in catalog)',
+      'models.helpWritten': '{count} models are written today. Green = written, blue = adding, red = removing.',
+      'models.helpNew': 'No provider written yet — this submission creates one, with every measured model selected by default.',
+      'models.nonReasoning': 'no tiers',
+      'models.tiers': '{count} tiers',
+      'discovered.title': '{count} unmeasured models upstream',
+      'discovered.help': 'The tier table is a measured snapshot; these were added upstream. Selecting them writes them without reasoning tiers — guessing tiers returns 400, so leaving them off at least keeps them usable.',
+      'tag.written': 'written',
+      'tag.add': 'add',
+      'tag.remove': 'remove',
+      'tag.unmeasured': 'unmeasured',
+      'action.create': 'This will: add a provider',
+      'action.noop': 'This will: change nothing',
+      'action.modify': 'This will: modify the provider',
+      'action.current': 'Now: providers.{id} · {count} models',
+      'action.currentNone': 'Now: nothing written',
+      'action.add': 'Add {count}: {list}',
+      'action.remove': 'Remove {count}: {list}',
+      'action.addExtra': 'Add {count} unmeasured: {list}',
+      'action.noopHelp': 'The model list already matches what is written; a key you type is still saved.',
+      'button.create': 'Add provider',
+      'button.save': 'Save changes',
+      'button.rewrite': 'Rewrite (no change)',
+      'button.saving': 'Writing…',
+      'button.refresh': 'Refresh capacity',
+      'button.refreshing': 'Refreshing…',
+      'done.create': 'Added providers.{id} ({count} models){credential}. Written to the user layer, so it survives uninstalling this plugin. Capacity readings appear within a minute.',
+      'done.update': 'Updated providers.{id} ({count} models){credential}. Written to the user layer, so it survives uninstalling this plugin. Capacity readings appear within a minute.',
+      'done.credential': ', and saved the API key',
+      'done.refresh': 'Capacity and quota refreshed.',
+    }
+
+    /**
+     * 宿主没注入 `t` 时的兜底：直接取英文字典。
+     *
+     * 正常路径是槽注册时带 `locale`，宿主把 `t` 塞进 props；这条只是让组件在
+     * 测试或非标准挂载下也能渲染出人话，不至于显示成键名。
+     */
+    function fallbackT(key, params) {
+      const template = en[key] ?? key
+      if (params === undefined || params === null) return template
+      return template.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match))
+    }
+
     /** 客户端版本号：改这个文件就顺手改它，便于确认界面上跑的是哪一版。 */
-    const CLIENT_VERSION = 'client@2026-10-21.3'
+    const CLIENT_VERSION = 'client@2026-10-21.4'
     /** 宿主路由前缀。 */
     const API = '/api/radeon-capacity'
 
@@ -69,7 +215,7 @@ window.__ModuleLoader__.load({
             store.at = Date.now()
             store.error = null
           } else {
-            store.error = typeof body?.error === 'string' ? body.error : 'state 请求失败'
+            store.error = typeof body?.error === 'string' ? body.error : 'state request failed'
           }
         })
         .catch((error) => {
@@ -132,9 +278,9 @@ window.__ModuleLoader__.load({
 
     /** 格式化「多久以前」。 */
     function ago(ms) {
-      if (typeof ms !== 'number' || !Number.isFinite(ms)) return '未知'
-      if (ms < 60_000) return `${Math.round(ms / 1000)} 秒前`
-      return `${Math.round(ms / 60_000)} 分钟前`
+      if (typeof ms !== 'number' || !Number.isFinite(ms)) return 'unknown'
+      if (ms < 60_000) return `${Math.round(ms / 1000)}s ago`
+      return `${Math.round(ms / 60_000)}m ago`
     }
 
     /** 额度文本：`$0.97 / $1.00 · 日`。 */
@@ -216,12 +362,12 @@ window.__ModuleLoader__.load({
         { style: { display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 } },
         h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, name),
         official
-          ? h('span', { style: chipStyle('#0b6bcb'), title: '内置发布标记（1017）' }, '1017')
+          ? h('span', { style: chipStyle('#0b6bcb'), title: 'Built-in release marker (1017)' }, '1017')
           : null,
         load === null
           ? null
           : h('span', {
-            title: `Radeon 并发配额已用 ${utilization}%（${load.label}，数据 ${ago(state?.capacity?.ageMs)}）`,
+            title: `Radeon capacity: ${utilization}% of the concurrency budget used (${load.label}, data ${ago(state?.capacity?.ageMs)})`,
             style: chipStyle(toneOf(load.state)),
           },
           h('span', { style: { fontSize: 8, lineHeight: '8px' } }, '●'),
@@ -229,8 +375,8 @@ window.__ModuleLoader__.load({
       )
     }
 
-    // ── 2) 输入框下方的容量 + 额度胶囊 ────────────────────────────────────────
-    /** 取某个会话的模型选择目录（拿不到就返回 null，胶囊自动隐藏）。 */
+    // ── 2) 模型选择器同一行的容量读数 ─────────────────────────────────────────
+    /** 取某个会话的模型选择目录（拿不到就返回 null，读数自动隐藏）。 */
     function directoryFor(modelDirectories, sessionId) {
       try {
         const directory = modelDirectories.directoryFor(sessionId)
@@ -262,8 +408,17 @@ window.__ModuleLoader__.load({
       return source
     }
 
-    /** 胶囊组件：只在当前选中的模型属于 Radeon 时出现。 */
-    function CapacityPill(props) {
+    /**
+     * 模型选择器同一行的容量读数。
+     *
+     * 挂在 `conversation.input.right` —— 和 `conversation.input.model` 在同一个
+     * `standardControls` 容器里，渲染顺序在模型选择器左边，所以读数和模型名并排。
+     * 这个槽由 `sessionId !== undefined` 把守，**选好模型但还没发第一条消息时也成立**
+     * （新会话会先建出来），因此"选定未开始会话"同样能看见。
+     *
+     * 文案一律英文：`Idle / Busy / Full` 是 AMD 控制台自己的术语。
+     */
+    function CapacityInline(props) {
       const source = sourceOf(props?.directory ?? null)
       const state = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
       const dirState = React.useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
@@ -271,49 +426,47 @@ window.__ModuleLoader__.load({
       if (!isRadeon(state, { id: current?.provider })) return null
       const load = loadOf(state, current?.model)
       const quota = state?.quota?.ok === true ? state.quota.quota : null
-      const parts = []
-      if (load !== null) {
-        parts.push(`● ${load.label} ${Math.round(load.utilization)}%`)
-      }
       const quotaLabel = quotaText(quota)
-      // 额度只是参考：AMD 目前不按这个数限量，所以不并进主读数，另起一段弱化显示。
-      const quotaPart = quotaLabel === null ? null : `额度 ${quotaLabel}`
-      // 容量没读数时仍然出胶囊：额度虽然是参考值，但「这个模型现在没流量」本身也是信息。
-      if (parts.length === 0 && quotaPart === null) return null
+      // 容量没读数时仍然出读数：额度虽然是参考值，但「这个模型现在没流量」本身也是信息。
+      if (load === null && quotaLabel === null) return null
+      const utilization = load === null ? null : Math.round(load.utilization)
       const rpm = quota?.rpm
       const title = [
-        load === null ? '容量：暂无读数（上游只返回有流量的模型）' : `容量：${load.label}，并发配额已用 ${Math.round(load.utilization)}%（数据 ${ago(state?.capacity?.ageMs)}）`,
+        load === null
+          ? 'Capacity: no reading (upstream only reports models with traffic)'
+          : `Capacity: ${load.label}, ${utilization}% of the concurrency budget used (data ${ago(state?.capacity?.ageMs)})`,
         quotaLabel === null
-          ? '额度：暂无读数'
-          : `额度：网关回报当日剩余 ${quotaLabel}${typeof rpm?.remaining === 'number' ? `，本分钟剩余 ${rpm.remaining} 次` : ''}（数据 ${ago(state?.quota?.ageMs)}）`,
-        '额度仅为网关回报的参考值 —— AMD 当前免费不限量，不影响能否调用。',
+          ? 'Quota: no reading'
+          : `Quota: the gateway reports ${quotaLabel} left today${typeof rpm?.remaining === 'number' ? `, ${rpm.remaining} requests left this minute` : ''} (data ${ago(state?.quota?.ageMs)})`,
+        'Quota is a reference value only — AMD is currently free and unmetered, so it never affects whether you can call a model.',
       ].join('\n')
       return h(
         'span',
         {
           title,
-          'data-radeon-capacity': 'pill',
+          'data-radeon-capacity': 'inline',
           style: {
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 6,
+            gap: 4,
+            marginRight: 6,
             fontSize: 11,
             fontWeight: 600,
             fontVariantNumeric: 'tabular-nums',
             color: 'var(--dsw-alias-label-secondary, inherit)',
-            background: 'rgba(128,128,128,0.10)',
-            borderRadius: 999,
-            padding: '1px 8px',
             whiteSpace: 'nowrap',
+            flex: 'none',
           },
         },
         load === null
           ? null
           : h('span', { style: { color: toneOf(load.state), fontSize: 9 } }, '●'),
-        h('span', null, parts.join(' · ')),
-        quotaPart === null
+        load === null
+          ? h('span', { style: { opacity: 0.55 } }, 'No reading')
+          : h('span', null, `${load.label} ${utilization}%`),
+        quotaLabel === null
           ? null
-          : h('span', { style: { opacity: 0.55, fontSize: 10 } }, quotaPart),
+          : h('span', { style: { opacity: 0.5, fontWeight: 400 } }, `· ${quotaLabel}`),
       )
     }
 
@@ -339,6 +492,7 @@ window.__ModuleLoader__.load({
      *     （新增 vs 修改），一眼能看出这次是加东西还是改东西。
      */
     function ConfigForm(props) {
+      const t = props.t
       const state = props.state
       const [catalog, setCatalog] = React.useState(null)
       const [providerId, setProviderId] = React.useState('')
@@ -449,10 +603,11 @@ window.__ModuleLoader__.load({
           const done = value?.written
           setMessage({
             tone: 'ok',
-            text: `已${isCreate ? '新增' : '更新'} providers.${done?.providerId ?? providerId}` +
-              `（共 ${willWrite.length} 个模型）` +
-              `${done?.credentialWritten ? '，并保存了 API 密钥' : ''}。` +
-              '配置在用户层，卸载本插件后依然有效。容量读数会在几十秒内自动出现。',
+            text: t(isCreate ? 'done.create' : 'done.update', {
+              id: done?.providerId ?? effectiveProviderId,
+              count: willWrite.length,
+              credential: done?.credentialWritten === true ? t('done.credential') : '',
+            }),
           })
         } catch (error) {
           setMessage({ tone: 'err', text: error instanceof Error ? error.message : String(error) })
@@ -466,7 +621,7 @@ window.__ModuleLoader__.load({
         setMessage(null)
         try {
           await post('/refresh', {})
-          setMessage({ tone: 'ok', text: '已重新拉取容量与额度。' })
+          setMessage({ tone: 'ok', text: t('done.refresh') })
         } catch (error) {
           setMessage({ tone: 'err', text: error instanceof Error ? error.message : String(error) })
         } finally {
@@ -514,22 +669,20 @@ window.__ModuleLoader__.load({
       const modelState = (id) => {
         const inWritten = written.includes(id)
         const inChosen = chosen.includes(id)
-        if (inWritten && inChosen) return { tag: '已写入', color: '#12b76a' }
-        if (!inWritten && inChosen) return { tag: '新增', color: '#2e90fa' }
-        if (inWritten && !inChosen) return { tag: '将移除', color: '#d92d20' }
+        if (inWritten && inChosen) return { tag: t('tag.written'), color: '#12b76a' }
+        if (!inWritten && inChosen) return { tag: t('tag.add'), color: '#2e90fa' }
+        if (inWritten && !inChosen) return { tag: t('tag.remove'), color: '#d92d20' }
         return null
       }
 
       return h(
         'div',
         null,
-        h(Section, { title: '接口配置' },
+        h(Section, { title: t('section.api') },
           h('div', { style: { fontSize: 11, opacity: 0.75, lineHeight: 1.7 } },
-            '写入的是 DSH 用户层配置（profile 补丁），不是本插件内部 —— 所以卸载本插件后 provider 仍然可用。',
-            h('br'),
-            '凭据只经过宿主内存，不会回传给浏览器。',
+            t('section.apiHelp'),
           ),
-          h('label', { style: labelStyle }, 'provider id（模型选择器里的路由名）'),
+          h('label', { style: labelStyle }, t('field.providerId')),
           h('input', {
             style: inputStyle,
             value: effectiveProviderId,
@@ -538,9 +691,9 @@ window.__ModuleLoader__.load({
           }),
           changesProviderId
             ? h('div', { style: { fontSize: 10, color: '#f79009', marginTop: 4 } },
-              `注意：当前已写入的是 ${state?.provider?.id}，改成 ${effectiveProviderId} 会另建一个 provider，旧的那个仍然保留。`)
+              t('warn.providerId', { current: state?.provider?.id, next: effectiveProviderId }))
             : null,
-          h('label', { style: labelStyle }, '凭据引用名（apiKeyEnv）'),
+          h('label', { style: labelStyle }, t('field.apiKeyEnv')),
           h('input', {
             style: inputStyle,
             value: effectiveApiKeyEnv,
@@ -549,24 +702,22 @@ window.__ModuleLoader__.load({
           }),
           changesKeyEnv
             ? h('div', { style: { fontSize: 10, color: '#f79009', marginTop: 4 } },
-              `注意：当前已写入的是 ${state?.provider?.apiKeyEnv}，改这里不会搬走已存的密钥，需要重新填一次。`)
+              t('warn.apiKeyEnv', { current: state?.provider?.apiKeyEnv, next: effectiveApiKeyEnv }))
             : null,
-          h('label', { style: labelStyle }, 'API 密钥（rc-…，留空表示不改动）'),
+          h('label', { style: labelStyle }, t('field.apiKey')),
           h('input', {
             style: inputStyle,
             type: 'password',
             value: apiKey,
-            placeholder: state?.credential?.configured === true ? '已配置，留空即保持不变' : 'rc-xxxxxxxx',
+            placeholder: state?.credential?.configured === true ? t('field.apiKeySet') : 'rc-xxxxxxxx',
             autoComplete: 'off',
             onChange: (event) => setApiKey(event.target.value),
           }),
         ),
 
-        h(Section, { title: `收录模型（已选 ${chosen.length} / 目录 ${models.length}）` },
+        h(Section, { title: t('models.header', { chosen: chosen.length, total: models.length }) },
           h('div', { style: { fontSize: 11, opacity: 0.75, marginBottom: 6, lineHeight: 1.7 } },
-            hasProvider
-              ? `当前已写入 ${written.length} 个模型。绿色=已写入，蓝色=本次新增，红色=本次将移除。`
-              : '还没有写入过 provider —— 这次提交是「新增」，默认全选实测过的模型。',
+            hasProvider ? t('models.helpWritten', { count: written.length }) : t('models.helpNew'),
           ),
           h('div', {
             style: {
@@ -582,22 +733,22 @@ window.__ModuleLoader__.load({
               const load = loadOf(state, model.id)
               return h('label', { key: model.id, style: { display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' } },
                 h('input', { type: 'checkbox', checked, onChange: () => toggle(model.id) }),
-                h('span', { style: { opacity: mark !== null && mark.tag === '将移除' ? 0.45 : 1 } }, model.id),
+                h('span', { style: { opacity: mark !== null && mark.color === '#d92d20' ? 0.45 : 1 } }, model.id),
                 mark === null ? null : chip(mark.tag, mark.color, `m-${model.id}`),
                 load === null
                   ? null
                   : h('span', { style: { color: toneOf(load.state), fontSize: 10 } }, `● ${Math.round(load.utilization)}%`),
                 h('span', { style: { opacity: 0.55, fontSize: 10 } },
-                  model.tiers.length === 0 ? '非推理' : `${model.tiers.length} 档`),
+                  model.tiers.length === 0 ? t('models.nonReasoning') : t('models.tiers', { count: model.tiers.length })),
               )
             }),
           ),
         ),
 
         Array.isArray(discovered) && discovered.length > 0
-          ? h(Section, { title: `线上还有 ${discovered.length} 个未实测模型` },
+          ? h(Section, { title: t('discovered.title', { count: discovered.length }) },
             h('div', { style: { fontSize: 11, opacity: 0.75, marginBottom: 6, lineHeight: 1.7 } },
-              '档位表是实测快照，这几个是上游新加的。勾上会以「不声明思考档位」的方式写入 —— 猜档位会导致 400，关掉至少能正常对话。',
+              t('discovered.help'),
             ),
             h('div', {
               style: {
@@ -617,7 +768,7 @@ window.__ModuleLoader__.load({
                     onChange: () => toggleExtra(model.id),
                   }),
                   h('span', null, model.id),
-                  already ? chip('已写入', '#12b76a', `d-${model.id}`) : chip('未实测', '#98a2b3', `d-${model.id}`),
+                  already ? chip(t('tag.written'), '#12b76a', `d-${model.id}`) : chip(t('tag.unmeasured'), '#98a2b3', `d-${model.id}`),
                 )
               }),
             ),
@@ -636,14 +787,14 @@ window.__ModuleLoader__.load({
           },
         },
           h('div', { style: { fontWeight: 700, marginBottom: 2 } },
-            isCreate ? '本次操作：新增 provider' : isNoop ? '本次操作：无变化' : '本次操作：修改 provider'),
+            isCreate ? t('action.create') : isNoop ? t('action.noop') : t('action.modify')),
           hasProvider
-            ? h('div', null, `当前：providers.${state.provider.id} · ${written.length} 个模型`)
-            : h('div', null, '当前：尚未写入'),
-          toAdd.length > 0 ? h('div', { style: { color: '#2e90fa' } }, `新增 ${toAdd.length} 个：${toAdd.join('、')}`) : null,
-          toRemove.length > 0 ? h('div', { style: { color: '#d92d20' } }, `移除 ${toRemove.length} 个：${toRemove.join('、')}`) : null,
-          extraList.length > 0 ? h('div', { style: { color: '#2e90fa' } }, `新增未实测 ${extraList.length} 个：${extraList.map((model) => model.id).join('、')}`) : null,
-          isNoop ? h('div', { style: { opacity: 0.7 } }, '模型清单与已写入的一致；填了密钥仍会保存密钥。') : null,
+            ? h('div', null, t('action.current', { id: state.provider.id, count: written.length }))
+            : h('div', null, t('action.currentNone')),
+          toAdd.length > 0 ? h('div', { style: { color: '#2e90fa' } }, t('action.add', { count: toAdd.length, list: toAdd.join(', ') })) : null,
+          toRemove.length > 0 ? h('div', { style: { color: '#d92d20' } }, t('action.remove', { count: toRemove.length, list: toRemove.join(', ') })) : null,
+          extraList.length > 0 ? h('div', { style: { color: '#2e90fa' } }, t('action.addExtra', { count: extraList.length, list: extraList.map((model) => model.id).join(', ') })) : null,
+          isNoop ? h('div', { style: { opacity: 0.7 } }, t('action.noopHelp')) : null,
         ),
 
         h('div', { style: { display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' } },
@@ -655,9 +806,9 @@ window.__ModuleLoader__.load({
             disabled: busy !== '',
             onClick: save,
           },
-            busy === 'save' ? '写入中…' : isCreate ? '新增 provider' : isNoop ? '重新写入（无变化）' : '保存修改'),
+            busy === 'save' ? t('button.saving') : isCreate ? t('button.create') : isNoop ? t('button.rewrite') : t('button.save')),
           h('button', { style: buttonStyle, disabled: busy !== '', onClick: reload },
-            busy === 'reload' ? '刷新中…' : '立即刷新容量'),
+            busy === 'reload' ? t('button.refreshing') : t('button.refresh')),
         ),
         message === null
           ? null
@@ -680,6 +831,7 @@ window.__ModuleLoader__.load({
      * 否则整块面板会挤进列表行里。
      */
     function SettingsPanel(props) {
+      const t = typeof props?.t === 'function' ? props.t : fallbackT
       const state = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
       const provider = state?.provider ?? null
       const capacity = state?.capacity ?? null
@@ -687,24 +839,27 @@ window.__ModuleLoader__.load({
       const daily = quota?.ok === true ? quota.quota?.dailyUsd : null
       const rows = []
       if (provider !== null) {
-        rows.push(['已接入 provider', `${provider.displayName}（${provider.id}）`])
-        rows.push(['端点', provider.baseURL])
-        rows.push(['凭据引用', `${provider.apiKeyEnv}${state?.credential?.configured === true ? '（已配置）' : '（缺失）'}`])
-        rows.push(['模型数', String(provider.modelCount)])
+        rows.push([t('row.provider'), `${provider.displayName} (${provider.id})`])
+        rows.push([t('row.endpoint'), provider.baseURL])
+        rows.push([t('row.credential'), `${provider.apiKeyEnv}${state?.credential?.configured === true ? ' ✓' : ' ✗'}`])
+        rows.push([t('row.models'), String(provider.modelCount)])
       } else {
-        rows.push(['已接入 provider', '未发现 —— 可以在下面一键写入，或先到 设置 → 模型 里自行配置'])
+        rows.push([t('row.provider'), t('state.none')])
       }
       rows.push([
-        '容量',
+        t('row.capacity'),
         capacity?.ok === true
-          ? `${Object.keys(capacity.models).length} 个模型有读数（${ago(capacity.ageMs)}）`
-          : `暂无（${capacity?.error ?? '未知'}）`,
+          ? t('capacity.ok', { count: Object.keys(capacity.models).length, ago: ago(capacity.ageMs) })
+          : t('capacity.none', { error: capacity?.error ?? 'unknown' }),
       ])
       rows.push([
-        '额度（参考）',
+        t('row.quota'),
         daily === null || daily === undefined
-          ? `暂无（${quota?.error ?? '未知'}）`
-          : `网关回报当日剩余 $${Math.round(daily.remaining * 100) / 100} / $${daily.limit.toFixed(2)}`,
+          ? t('quota.none', { error: quota?.error ?? 'unknown' })
+          : t('quota.ok', {
+            left: `$${Math.round(daily.remaining * 100) / 100}`,
+            limit: `$${daily.limit.toFixed(2)}`,
+          }),
       ])
 
       /** 已写入的模型 + 它们的实时容量，一张小表看清「写了什么、现在忙不忙」。 */
@@ -713,7 +868,7 @@ window.__ModuleLoader__.load({
         ? null
         : h('div', { style: { marginTop: 6 } },
           h('div', { style: { fontSize: 11, opacity: 0.75, marginBottom: 4 } },
-            `已写入 ${writtenModels.length} 个模型：`),
+            t('models.title', { count: writtenModels.length })),
           h('table', { style: { fontSize: 12, borderCollapse: 'collapse' } },
             h('tbody', null,
               writtenModels.map((id) => {
@@ -725,7 +880,7 @@ window.__ModuleLoader__.load({
                     id),
                   h('td', { style: { padding: '1px 0', opacity: 0.75, whiteSpace: 'nowrap' } },
                     load === null
-                      ? '无读数'
+                      ? t('models.noReading')
                       : `${load.label ?? load.state} ${Math.round(load.utilization)}%`),
                 )
               }),
@@ -734,11 +889,13 @@ window.__ModuleLoader__.load({
         )
 
       if (props?.view === 'summary') {
-        const cap = capacity?.ok === true ? `${Object.keys(capacity.models).length} 个模型有读数` : '容量暂无'
+        const cap = capacity?.ok === true
+          ? t('summary.capacity', { count: Object.keys(capacity.models).length })
+          : t('summary.noCapacity')
         return h(
           'span',
           null,
-          provider === null ? '未接入 Radeon provider —— 点「配置」写入' : `${provider.displayName}（${provider.id}）`,
+          provider === null ? t('summary.noProvider') : `${provider.displayName} (${provider.id})`,
           ' · ',
           cap,
         )
@@ -748,7 +905,7 @@ window.__ModuleLoader__.load({
         'div',
         { style: { padding: '4px 2px', fontSize: 13 } },
         h('div', { style: { fontSize: 11, opacity: 0.6 } }, `dsh-radeon-capacity · ${CLIENT_VERSION}`),
-        h(Section, { title: '当前状态' },
+        h(Section, { title: t('section.status') },
           h('table', { style: { fontSize: 12, borderCollapse: 'collapse' } },
             h('tbody', null,
               rows.map(([key, value]) => h('tr', { key },
@@ -759,7 +916,7 @@ window.__ModuleLoader__.load({
           ),
           modelTable,
         ),
-        h(ConfigForm, { state }),
+        h(ConfigForm, { state, t }),
       )
     }
 
@@ -787,6 +944,14 @@ window.__ModuleLoader__.load({
       const takeoverLabel = options.modelLabelBadge !== false
       startPoller()
 
+      // 配置页的中英文案。读数组件不用 t（一律英文），只有设置面板走这条。
+      try {
+        ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh, en }), 'dsh-radeon-capacity: copy')
+      } catch (error) {
+        console.error('[dsh-radeon-capacity] locale registration failed (readings unaffected)', error)
+      }
+      const t = typeof ctx.locale?.bind === 'function' ? ctx.locale.bind(LOCALE_NS) : (key) => key
+
       // 1) 模型选择器徽章：**探测到 Radeon provider 之后**才注册。
       //    没注册时那个 single 槽仍归内核自己的标注插件所有，不会被我顶掉。
       let badgeRegistered = false
@@ -804,19 +969,21 @@ window.__ModuleLoader__.load({
       tryRegisterBadge(store.value)
       store.listeners.add(() => tryRegisterBadge(store.value))
 
-      // 2) 输入框下方胶囊。`modelDirectories` 由官方的模型选择插件提供，取不到时
-      //    胶囊就不注册 —— 少一个挂点，但不会让整个客户端半区加载失败。
+      // 2) 模型选择器同一行的容量读数。`modelDirectories` 由官方的模型选择插件提供，
+      //    取不到时就不注册 —— 少一个挂点，但不会让整个客户端半区加载失败。
+      //    挂 `conversation.input.right` 而不是 `conversation.composer.dock`：后者只在
+      //    `variant === "composer"` 时渲染，新会话是 hero 变体，选定未开始会话时会消失。
       ctx.inject(['modelDirectories'], (modelCtx) => {
         const directories = modelCtx.modelDirectories
-        ctx.slots.inject('conversation.composer.dock', () =>
+        ctx.slots.inject('conversation.input.right', () =>
           ctx.slots.register(
             {
-              name: 'conversation.composer.dock',
+              name: 'conversation.input.right',
               id: 'radeon-capacity',
               order: 20,
               inject: (sessionId) => ({ directory: directoryFor(directories, sessionId) }),
             },
-            CapacityPill,
+            CapacityInline,
           ),
         )
       })
@@ -829,11 +996,11 @@ window.__ModuleLoader__.load({
       const registerCard = (slotName, key) => {
         try {
           ctx.slots.inject(slotName, () =>
-            ctx.slots.register({ name: slotName, key, priority: 30 }, SettingsPanel),
+            ctx.slots.register({ name: slotName, key, priority: 30, locale: LOCALE_NS }, SettingsPanel),
           )
         } catch (error) {
           // 配置页注册失败不影响徽章与胶囊，别让整个客户端半区跟着废掉。
-          console.error(`[dsh-radeon-capacity] ${slotName} 注册失败（徽章与胶囊不受影响）`, error)
+          console.error(`[dsh-radeon-capacity] ${slotName} registration failed (badges and readings unaffected)`, error)
         }
       }
       registerCard('plugins.bundle.config', 'dsh-radeon-capacity')
