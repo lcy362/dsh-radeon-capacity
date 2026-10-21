@@ -226,7 +226,7 @@ function texts(node) {
 test('bundle 能被解析，且导出面齐全', async () => {
   const { exports } = await loadClient({ state: null })
   assert.equal(exports.name, 'dsh-radeon-capacity')
-  assert.deepEqual(exports.inject, ['slots'])
+  assert.deepEqual(exports.inject, ['slots', 'locale'])
   assert.equal(typeof exports.apply, 'function')
 })
 

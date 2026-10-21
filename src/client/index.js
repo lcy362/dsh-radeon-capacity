@@ -172,7 +172,7 @@ window.__ModuleLoader__.load({
     }
 
     /** 客户端版本号：改这个文件就顺手改它，便于确认界面上跑的是哪一版。 */
-    const CLIENT_VERSION = 'client@2026-10-21.4'
+    const CLIENT_VERSION = 'client@2026-10-21.5'
     /** 宿主路由前缀。 */
     const API = '/api/radeon-capacity'
 
@@ -931,8 +931,13 @@ window.__ModuleLoader__.load({
 
     /** 客户端插件名。 */
     const name = 'dsh-radeon-capacity'
-    /** 依赖的客户端服务。 */
-    const inject = ['slots']
+    /**
+     * 依赖的客户端服务。
+     *
+     * `locale` 是独立的客户端服务（由 `dsh-client-locale` 提供），不声明就取不到 ——
+     * 那样 `ctx.locale` 是 undefined，设置页会静默退回英文。
+     */
+    const inject = ['slots', 'locale']
 
     /**
      * 挂载。
