@@ -13,7 +13,8 @@
  *   2. `conversation.input.right` —— **模型选择器同一行**的容量读数。
  *      这是 WorkBuddy / Trae 挂积分的那个槽：它和 `conversation.input.model` 在
  *      同一个 `standardControls` 里，渲染顺序就在模型选择器左边，所以读数跟模型名
- *      是并排的，而不是掉到输入框下方。选好模型、还没开始会话时同样显示。
+ *      是并排的，而不是掉到输入框下方。它和模型选择器共用同一个 `sessionId` 守卫，
+ *      所以「看得见模型选择器就看得见读数」—— 选定模型但还没开始会话时同样显示。
  *      （早先用的是 `conversation.composer.dock`，那个槽只在 `variant === "composer"`
  *      时渲染 —— 新会话是 `hero` 变体，于是"选定但未开始会话"整个不显示。）
  *   3. `plugins.bundle.config` / `plugins.row.config` —— 配置页长在「设置 → 插件」
@@ -172,7 +173,7 @@ window.__ModuleLoader__.load({
     }
 
     /** 客户端版本号：改这个文件就顺手改它，便于确认界面上跑的是哪一版。 */
-    const CLIENT_VERSION = 'client@2026-10-21.5'
+    const CLIENT_VERSION = 'client@2026-10-21.6'
     /** 宿主路由前缀。 */
     const API = '/api/radeon-capacity'
 
@@ -413,8 +414,9 @@ window.__ModuleLoader__.load({
      *
      * 挂在 `conversation.input.right` —— 和 `conversation.input.model` 在同一个
      * `standardControls` 容器里，渲染顺序在模型选择器左边，所以读数和模型名并排。
-     * 这个槽由 `sessionId !== undefined` 把守，**选好模型但还没发第一条消息时也成立**
-     * （新会话会先建出来），因此"选定未开始会话"同样能看见。
+     * 它和 `conversation.input.model` 共用同一个 `sessionId !== undefined` 守卫 ——
+     * 也就是说「只要看得见模型选择器，就看得见读数」。选定模型但还没发第一条消息的
+     * hero 状态照样有 sessionId，所以那个状态下读数和模型名同样并排。
      *
      * 文案一律英文：`Idle / Busy / Full` 是 AMD 控制台自己的术语。
      */

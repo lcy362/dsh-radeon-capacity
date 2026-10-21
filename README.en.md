@@ -27,7 +27,9 @@ The badge only registers **after** a Radeon provider is detected, so it never hi
 
 The reading lives in `conversation.input.right` — the same `standardControls` container
 as the model picker, rendered immediately before it, so the reading sits **beside** the
-model name. It also shows up once a model is picked but before the first message is sent.
+model name. It shares the model picker's `sessionId` guard, so **wherever you can pick a
+model you can see the reading** — including once a model is picked but before the first
+message is sent.
 (Earlier versions used `conversation.composer.dock` below the composer, which only renders
 in the `composer` variant — a fresh session is the `hero` variant, so the reading vanished
 in the "picked but not started" state.)

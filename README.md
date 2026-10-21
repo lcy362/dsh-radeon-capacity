@@ -27,7 +27,8 @@ Radeon Cloud 的模型会在 `idle / busy / full` 之间浮动，这才是真正
 
 读数挂在 `conversation.input.right` —— 它和模型选择器在同一个 `standardControls`
 容器里、渲染顺序就在选择器左边，所以读数和模型名是**并排**的；选好模型、还没开始
-会话时同样显示。（早期版本用的是输入框下方的 `conversation.composer.dock`，那个槽
+会话时同样显示 —— 它和模型选择器共用同一个 `sessionId` 守卫，**看得见模型选择器就看
+得见读数**。（早期版本用的是输入框下方的 `conversation.composer.dock`，那个槽
 只在 `composer` 变体渲染，新会话是 `hero` 变体，于是"选定但未开始"时读数会消失。）
 
 界面上的读数一律**英文**（`Idle / Busy / Full` 是 AMD 控制台自己的术语）；设置页
