@@ -125,9 +125,12 @@ test('没有 Radeon provider 时不注册模型标注槽（不顶掉内核 1017�
     registrations.some((row) => row.spec.name === 'conversation.input.model.label'),
     false,
   )
-  // 胶囊与设置页照常注册
+  // 胶囊与插件配置页照常注册
   assert.equal(registrations.some((row) => row.spec.name === 'conversation.composer.dock'), true)
-  assert.equal(registrations.some((row) => row.spec.name === 'settings.section'), true)
+  assert.equal(registrations.some((row) => row.spec.name === 'plugins.bundle.config'), true)
+  assert.equal(registrations.some((row) => row.spec.name === 'plugins.row.config'), true)
+  // 明确**不**往 DSH 设置页加分区
+  assert.equal(registrations.some((row) => row.spec.name === 'settings.section'), false)
 })
 
 test('探测到 provider 后注册徽章，并渲染出容量百分比', async () => {
@@ -178,6 +181,21 @@ test('内核 1017 标记在接管后仍然渲染', async () => {
     placement: 'menu',
   })
   assert.match(texts(tree).join(''), /1017/)
+})
+
+test('配置页键名与 patch 里的行 id 对齐', async () => {
+  const { exports, registrations, ctx } = await loadClient({ state: READY_STATE })
+  exports.apply(ctx)
+  await tick()
+  const bundleCard = registrations.find((row) => row.spec.name === 'plugins.bundle.config')
+  const rowCard = registrations.find((row) => row.spec.name === 'plugins.row.config')
+  assert.equal(bundleCard.spec.key, 'dsh-radeon-capacity')
+  assert.equal(rowCard.spec.key, 'dsh-radeon-capacity#radeon-capacity')
+  // 行 id 必须与 cordis.patch.yml 里 insert 的 id 一致，否则「配置」按钮点不进来
+  const patch = await import('node:fs').then((fs) =>
+    fs.readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8'),
+  )
+  assert.match(patch, /id:\s*radeon-capacity/)
 })
 
 test('胶囊：选中 Radeon 模型时出容量与额度，选别家时不出', async () => {

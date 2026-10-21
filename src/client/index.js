@@ -11,7 +11,9 @@
  *      只有 `priority` 更靠前的那一条会被渲染，所以注册时要 `priority: -1`，
  *      并且**必须自己输出模型名**（`fallback: model.name` 只在槽里一条都没有时生效）。
  *   2. `conversation.composer.dock` —— 输入框下方胶囊：当前模型的容量 + 额度。
- *   3. `settings.section` —— 「Radeon」设置页：状态、一键配置 provider。
+ *   3. `plugins.bundle.config` / `plugins.row.config` —— 配置页长在「设置 → 插件」
+ *      里本插件自己的页面上（状态、一键写入 provider、模型发现），**不往 DSH
+ *      设置页加分区**。
  *
  * 徽章是**先探测、后注册**：没有 Radeon provider 时根本不占那个 single 槽，
  * 不会把内核自带的模型标注顶掉。
@@ -24,7 +26,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
 
     /** 客户端版本号：改这个文件就顺手改它，便于确认界面上跑的是哪一版。 */
-    const CLIENT_VERSION = 'client@2026-10-21.1'
+    const CLIENT_VERSION = 'client@2026-10-21.2'
     /** 宿主路由前缀。 */
     const API = '/api/radeon-capacity'
 
@@ -543,12 +545,19 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** 设置页主面板。 */
-    function SettingsPanel() {
+    /**
+     * 插件配置页主面板（挂在「设置 → 插件」本插件页面里）。
+     *
+     * 同一个组件服务两种视图：插件管理器用 `view: 'summary'` 把内容塞进行描述位置，
+     * 用 `view: 'page'` 渲染包页面里的完整配置区。summary 必须是一行短文案，
+     * 否则整块面板会挤进列表行里。
+     */
+    function SettingsPanel(props) {
       const state = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
       const provider = state?.provider ?? null
       const capacity = state?.capacity ?? null
       const quota = state?.quota ?? null
+      const daily = quota?.ok === true ? quota.quota?.dailyUsd : null
       const rows = []
       if (provider !== null) {
         rows.push(['已接入 provider', `${provider.displayName}（${provider.id}）`])
@@ -556,7 +565,7 @@ window.__ModuleLoader__.load({
         rows.push(['凭据引用', `${provider.apiKeyEnv}${state?.credential?.configured === true ? '（已配置）' : '（缺失）'}`])
         rows.push(['模型数', String(provider.modelCount)])
       } else {
-        rows.push(['已接入 provider', '未发现 —— 可以在下面一键写入，或先到设置 → 模型里自行配置'])
+        rows.push(['已接入 provider', '未发现 —— 可以在下面一键写入，或先到 设置 → 模型 里自行配置'])
       }
       rows.push([
         '容量',
@@ -564,13 +573,28 @@ window.__ModuleLoader__.load({
           ? `${Object.keys(capacity.models).length} 个模型有读数（${ago(capacity.ageMs)}）`
           : `暂无（${capacity?.error ?? '未知'}）`,
       ])
-      const daily = quota?.ok === true ? quota.quota?.dailyUsd : null
       rows.push([
         '额度',
         daily === null || daily === undefined
           ? `暂无（${quota?.error ?? '未知'}）`
           : `当日剩余 $${Math.round(daily.remaining * 100) / 100} / $${daily.limit.toFixed(2)}`,
       ])
+
+      if (props?.view === 'summary') {
+        const cap = capacity?.ok === true ? `${Object.keys(capacity.models).length} 个模型有读数` : '容量暂无'
+        const q = daily === null || daily === undefined
+          ? '额度暂无'
+          : `额度 $${Math.round(daily.remaining * 100) / 100}/$${daily.limit.toFixed(2)}`
+        return h(
+          'span',
+          null,
+          provider === null ? '未接入 Radeon provider —— 点「配置」写入' : `${provider.displayName}（${provider.id}）`,
+          ' · ',
+          cap,
+          ' · ',
+          q,
+        )
+      }
 
       return h(
         'div',
@@ -648,18 +672,23 @@ window.__ModuleLoader__.load({
         )
       })
 
-      // 3) 设置页。
-      ctx.slots.inject('settings.section', () =>
-        ctx.slots.register(
-          {
-            name: 'settings.section',
-            id: 'radeon-capacity',
-            order: 60,
-            label: () => 'Radeon',
-          },
-          SettingsPanel,
-        ),
-      )
+      // 3) 配置页：挂在「设置 → 插件」里本插件自己的那一页，**不占** DSH 设置页的
+      //    分区槽（settings.section）。两个键都注册，覆盖两种入口：
+      //      - plugins.bundle.config：以包名为键，渲染在包的页面（描述与行列表之间）
+      //      - plugins.row.config：以 `<包名>#<行 id>` 为键，行上的「配置」按钮直达
+      //    行 id 与 cordis.patch.yml 里那条 insert 的 id 必须一致。
+      const registerCard = (slotName, key) => {
+        try {
+          ctx.slots.inject(slotName, () =>
+            ctx.slots.register({ name: slotName, key, priority: 30 }, SettingsPanel),
+          )
+        } catch (error) {
+          // 配置页注册失败不影响徽章与胶囊，别让整个客户端半区跟着废掉。
+          console.error(`[dsh-radeon-capacity] ${slotName} 注册失败（徽章与胶囊不受影响）`, error)
+        }
+      }
+      registerCard('plugins.bundle.config', 'dsh-radeon-capacity')
+      registerCard('plugins.row.config', 'dsh-radeon-capacity#radeon-capacity')
     }
 
     const module = { exports: {} }

@@ -10,7 +10,7 @@
 |---|---|
 | 模型选择器 | 每个 Radeon 模型名后一枚徽章：`● 12%`（绿）/ `● 63%`（橙）/ `● 100%`（红） |
 | 输入框下方胶囊 | 当前选中模型的容量 + 当日额度：`● Busy 55% · 额度 $0.97 / $1.00` |
-| 设置 → Radeon | 状态总览 + 一键写入 provider（可同时存密钥、勾选模型） |
+| 设置 → 插件 → dsh-radeon-capacity | 状态总览 + 一键写入 provider（可同时存密钥、勾选模型）。配置长在插件自己的页面里，**不往 DSH 设置页加分区** |
 
 徽章是**探测到 Radeon provider 之后才注册**的。没有 Radeon provider 时它根本不占那个槽，不会把内核自带的模型标注顶掉。
 
@@ -46,7 +46,7 @@ pnpm add dsh-radeon-capacity      # 或 pnpm add /path/to/this/repo
 
 ### 还没配的人
 
-设置 → Radeon → 填三格：
+设置 → 插件 → dsh-radeon-capacity → 填三格：
 
 - **provider id**：模型选择器里的路由名，默认 `amd`；
 - **凭据引用名**：默认 `AMD_API_KEY`，密钥存在 `~/.dsh/.credentials.yaml` 的这个键下；
@@ -87,7 +87,7 @@ pnpm add dsh-radeon-capacity      # 或 pnpm add /path/to/this/repo
 - **集合会浮动**：不同时刻返回 13～16 个模型（只含有流量的），所以「查不到」是正常状态，界面如实显示无读数，**不猜成空闲**；
 - **未文档化**：随时可能消失，一切失败都静默降级。
 
-因为慢，宿主侧是 `stale-while-revalidate`：过期就先给旧值、后台刷新，界面从不挂在一次 25 秒的请求上。数据年龄会出现在 tooltip 和设置页里 —— 读数最多就是 30 秒级新鲜，这是服务端决定的，做到更快只能造假。
+因为慢，宿主侧是 `stale-while-revalidate`：过期就先给旧值、后台刷新，界面从不挂在一次 25 秒的请求上。数据年龄会出现在 tooltip 和插件配置页里 —— 读数最多就是 30 秒级新鲜，这是服务端决定的，做到更快只能造假。
 
 ### 额度：`x-ratelimit-*` 响应头
 
@@ -108,7 +108,7 @@ x-ratelimit-remaining-user-rpm: 17
 `Gemma-4-31B-IT`；同一份目录里还有 `Clef` / `d3` / `OmniVoice` 这类
 `context_length: 0`、输出模态是 `decision` 的**辅助路由服务**，不是对话模型，会被过滤）。
 
-设置页会额外问一次 `GET /v1/models`，把「线上有、表里没有」的模型单独列出来。
+插件配置页会额外问一次 `GET /v1/models`，把「线上有、表里没有」的模型单独列出来。
 勾选后按 `reasoningEfforts: false` 写入 —— 猜档位会让请求直接 400，关掉档位至少能正常对话。
 
 ### 思考档位

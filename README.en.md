@@ -10,7 +10,7 @@ It never proxies model calls: transport, reasoning fields and usage accounting s
 |---|---|
 | Model picker | A badge after every Radeon model: `● 12%` (green) / `● 63%` (amber) / `● 100%` (red) |
 | Below the composer | Capacity + daily quota of the selected model: `● Busy 55% · $0.97 / $1.00` |
-| Settings → Radeon | Status overview + one-click provider setup (stores the key, picks models) |
+| Settings → Plugins → dsh-radeon-capacity | Status overview + one-click provider setup (stores the key, picks models) |
 
 The badge only registers **after** a Radeon provider is detected, so it never hijacks the core model-label slot when you don't use Radeon.
 
@@ -27,7 +27,7 @@ pnpm add dsh-radeon-capacity        # or: pnpm add /path/to/this/repo
 ## Configuration
 
 - **Already have a Radeon provider?** Nothing to do. Detection is by `baseURL` containing `developer.amd.com.cn`, so the provider id (`amd`, `radeon-cloud`, anything) and the credential ref don't matter.
-- **No provider yet?** Settings → Radeon: provider id, credential ref (`AMD_API_KEY`), API key (`rc-…`), then "Write config". It is written to the **user layer** via `ctx.settings.update`, which means **the provider keeps working after you uninstall this plugin** — the exact opposite of shipping a provider inside a plugin bundle layer.
+- **No provider yet?** Settings → Plugins → dsh-radeon-capacity: provider id, credential ref (`AMD_API_KEY`), API key (`rc-…`), then "Write config". It is written to the **user layer** via `ctx.settings.update`, which means **the provider keeps working after you uninstall this plugin** — the exact opposite of shipping a provider inside a plugin bundle layer.
 - Optional plugin config: `providerId`, `apiKeyEnv`, `displayName`, `baseURL`, `quotaProbe`, `capacityTtlMs`, `quotaTtlMs`.
 
 ## Data sources

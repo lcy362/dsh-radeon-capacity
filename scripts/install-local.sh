@@ -25,8 +25,14 @@ app_pids() {
 }
 
 if [[ -n "$(app_pids)" ]]; then
-  echo "✗ DSH App 还在运行（PID: $(app_pids | tr '\n' ' ')）。请先完全退出 App 再安装 —— bundle 只在启动时加载。"
-  exit 1
+  if [[ "${1:-}" == "--force" ]]; then
+    # 只写文件，不动运行中的进程：最坏情况是本次运行看不到插件，
+    # 下次启动照常加载。用于「退出没退干净」时兜底，避免装不进去。
+    echo "! App 仍在运行（PID: $(app_pids | tr '\n' ' ')），按 --force 继续；重启后才会生效。"
+  else
+    echo "✗ DSH App 还在运行（PID: $(app_pids | tr '\n' ' ')）。请先完全退出 App 再安装 —— bundle 只在启动时加载。"
+    exit 1
+  fi
 fi
 
 if [[ ! -f "$PROFILE/package.json" ]]; then
@@ -36,6 +42,7 @@ fi
 
 MODE="install"
 [[ "${1:-}" == "--remove" ]] && MODE="remove"
+[[ "${1:-}" == "--force" ]] && FORCE=1
 
 cp "$PROFILE/package.json" "$PROFILE/package.json.bak-radeon-capacity"
 
