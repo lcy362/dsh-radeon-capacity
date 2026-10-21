@@ -15,13 +15,26 @@ https://raw.githubusercontent.com/lcy362/dsh-radeon-capacity/main/market/index.j
 https://cdn.jsdelivr.net/gh/lcy362/dsh-radeon-capacity@main/market/index.json
 ```
 
-在 DSH 里把上面任一 URL 加成市场来源即可看到本插件。两条命令都能加：
+在 DSH 里把上面任一 URL 加成市场来源即可看到本插件：
 
-```sh
-# 方式一：设置页手动添加（设置 → 插件 → 发现 → 市场来源）
-# 方式二：直接写 profile 补丁的用户层配置
-#   plugin-market 的 indexes 字段
 ```
+设置 → 插件 → 发现 → 市场来源 → 添加 URL
+```
+
+（内核的 `plugin-market` 服务把来源存在 `indexes` 字段里，也可以用 profile 补丁的
+用户层配置写。）
+
+## 已经投递的市场
+
+除了本仓库自带的索引，插件也已经提交到社区市场：
+
+| 市场 | 方式 | 状态 |
+|---|---|---|
+| [losebird/dsh-plugin-market](https://github.com/losebird/dsh-plugin-market) | curated PR（Release 的 `.tgz` 作 spec） | [PR #51](https://github.com/losebird/dsh-plugin-market/pull/51) |
+| GitHub `dsh-plugin` topic | 自动采集（`AwesomeHou/dsh-plugin-marketplace` 等按 topic 实时同步） | 已打 topic |
+
+topic 是最省事的一条：那些市场按 `github.com/topics/dsh-plugin` 实时同步，仓库打了
+topic 就会自动出现，不用逐个提 PR。
 
 ## 格式要点
 
