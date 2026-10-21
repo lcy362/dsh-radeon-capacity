@@ -1,0 +1,96 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Radeon Capacity Plugins",
+    "zh": "Radeon 容量插件"
+  },
+  "description": {
+    "en": "DeepSeek Harness plugins that surface AMD Radeon Cloud model capacity.",
+    "zh": "展示 AMD Radeon Cloud 模型忙闲度的 DeepSeek Harness 插件。"
+  },
+  "metadata": {
+    "categories": {
+      "models": {
+        "title": {
+          "en": "Models & Capacity",
+          "zh": "模型与容量"
+        }
+      }
+    },
+    "labels": {
+      "amd": {
+        "title": {
+          "en": "AMD",
+          "zh": "AMD"
+        }
+      },
+      "capacity": {
+        "title": {
+          "en": "Capacity",
+          "zh": "容量"
+        }
+      }
+    },
+    "sortKeys": {
+      "stars": {
+        "title": {
+          "en": "Stars",
+          "zh": "星标"
+        },
+        "order": "desc"
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-radeon-capacity",
+      "title": {
+        "en": "Radeon Capacity",
+        "zh": "Radeon 容量"
+      },
+      "description": {
+        "en": "Shows AMD Radeon Cloud AI Capacity for every model: a per-model badge in the model picker, and the selected model's capacity on the same row as its name. Quota is display-only (AMD is currently free and unmetered). Optionally writes the provider config into the DSH user layer, so it keeps working after you uninstall this plugin.",
+        "zh": "显示 AMD Radeon Cloud 的 AI Capacity：模型选择器里每个模型一枚容量徽章，当前模型的容量与模型名同一行展示。额度仅作展示（AMD 目前免费不限量）。可选一键把 provider 配置写进 DSH 用户层，卸载本插件后依然可用。"
+      },
+      "author": "lcy362",
+      "homepage": "https://github.com/lcy362/dsh-radeon-capacity#readme",
+      "repository": {
+        "url": "https://github.com/lcy362/dsh-radeon-capacity"
+      },
+      "metadata": {
+        "category": "models",
+        "keywords": [
+          "amd",
+          "radeon",
+          "capacity",
+          "ai-capacity",
+          "quota",
+          "deepseek-harness",
+          "dsh-plugin",
+          "token-factory"
+        ],
+        "labels": [
+          "amd",
+          "capacity"
+        ],
+        "sortKeys": {
+          "stars": 0
+        }
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1792572604,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/lcy362/dsh-radeon-capacity",
+            "commit": "b136a1ad07009834da6508d13fa0b46a1bd18b6e"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1 <0.3.0-0"
+          }
+        }
+      ]
+    }
+  ]
+}
