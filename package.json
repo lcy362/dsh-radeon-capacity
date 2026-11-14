@@ -1,7 +1,16 @@
 {
   "name": "dsh-radeon-capacity",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AMD Radeon Cloud 模型忙闲度（AI Capacity）读数：模型选择器里显示每个模型的并发配额水位，输入框下方显示当前模型的容量。额度仅作展示（AMD 目前免费不限量），并可选一键写入 provider 配置（写在用户层，卸载本插件后依然可用）。",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lcy362/dsh-radeon-capacity.git"
+  },
+  "homepage": "https://github.com/lcy362/dsh-radeon-capacity#readme",
+  "bugs": {
+    "url": "https://github.com/lcy362/dsh-radeon-capacity/issues"
+  },
+  "author": "lcy362",
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",
@@ -52,6 +61,8 @@
   "scripts": {
     "test": "node --test --test-force-exit \"test/*.test.mjs\"",
     "smoke": "node scripts/smoke.mjs",
-    "check:market": "node scripts/check-market.mjs"
+    "check:market": "node scripts/check-market.mjs",
+    "release": "bash scripts/release.sh",
+    "prepublishOnly": "npm test"
   }
 }

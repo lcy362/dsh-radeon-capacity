@@ -36,33 +36,47 @@ Radeon Cloud 的模型会在 `idle / busy / full` 之间浮动，这才是真正
 
 ## 安装
 
-### 从插件市场装（推荐）
+### 从 npm 装（推荐）
 
-DSH 的「设置 → 插件 → 发现」页可以添加**市场来源**，本插件已经带了合规的
-[format 1 索引](market/index.json)。把下面任一 URL 加为来源：
+已发布到 npm，装到的是预构建产物，安装时不需要构建：
 
+```sh
+dsh plugin --profile <你的 profile> add dsh-radeon-capacity
 ```
-https://raw.githubusercontent.com/lcy362/dsh-radeon-capacity/main/market/index.json
-```
 
-国内网络拉 `raw.githubusercontent.com` 不稳时，换 jsDelivr 的同名文件：
+桌面端（DSH Desktop）请用应用内的「设置 → 插件」搜索安装。用命令行装 desktop profile 之前
+**要先把 App 完全退出**，否则命令写进去的是另一份 profile（`profiles/web`），界面里不会出现。
+
+### 从社区目录装
+
+`dshmarket` 读的那份目录由 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+策展。收录之后它会直接出现在「插件 → 发现」里，点一下就能装。
+
+### 用本仓库自带的索引装
+
+还没进目录时，也可以把本仓库自带的 [format 1 索引](market/index.json)加为市场来源
+（设置 → 插件 → 发现 → 市场来源），把下面任一 URL 加进去。首选 jsDelivr，国内可达：
 
 ```
 https://cdn.jsdelivr.net/gh/lcy362/dsh-radeon-capacity@main/market/index.json
 ```
 
-加完就能在「发现」里看到 Radeon Capacity，点安装即可（市场会用钉死的 commit
-装，不会装到分支上的半成品）。
+同一份文件的 GitHub 原件（部分网络下拉不动）：
+
+```
+https://raw.githubusercontent.com/lcy362/dsh-radeon-capacity/main/market/index.json
+```
+
+加完就能在「发现」里看到 Radeon Capacity，点安装即可（市场按索引里钉死的 commit 装，
+不会装到分支上的半成品）。
 
 ### 从源码装
 
 ```sh
 cd ~/.dsh/profiles/desktop
-pnpm add dsh-radeon-capacity      # 或 pnpm add /path/to/this/repo
-# 登记到 profile 的 bundles：
-#   ~/.dsh/profiles/desktop/package.json → "dsh": { "profile": { "bundles": [ ... "dsh-radeon-capacity" ] } }
+pnpm add link:/path/to/this/repo
+# 把 "dsh-radeon-capacity" 登记进 package.json → dsh.profile.bundles
 ```
-
 **不用重启 DSH。** 内核的 HMR（`dsh-hmr`）同时盯着 profile 的 `package.json` 和
 `cordis.patch.yml`，一改就重算补丁、把新 bundle 装进来；客户端半区由
 `dsh-client-hmr` 轮询 bundle 的 mtime，变了就推 `/plugins/events`，浏览器自动换成新
@@ -200,6 +214,59 @@ node scripts/smoke.mjs          # 真机冒烟：打真实端点，只打印容�
 
 `npm test` 带 `--test-force-exit`：客户端半区会起一个轮询定时器（界面行为），
 不带的话测试进程会一直挂着。
+
+## 发布与收录（维护者）
+
+### 发一个版本
+
+```sh
+npm version patch --no-git-tag-version   # 改 package.json 的版本号，但先不打 tag
+git commit -am "chore(release): vX.Y.Z" && git push
+bash scripts/release.sh                  # 跑测试 → 打包 → 建 tag 与 Release
+npm publish                              # 需要先 npm login
+```
+
+`scripts/release.sh` 会把产物**固定**命名为 `dsh-radeon-capacity.tgz` 再上传，然后打印出新的
+commit SHA，用它去更新 `market/index.json` 的 `source.commit`（索引不能指向自己那个 commit）。
+
+资产名不能带版本号：索引里的 `tarball` 指向 `releases/latest/download/`，带版本号的文件名在
+下一次发版后就会 404，而目录的 `probe-tarballs.mjs` 实测 404 之后会**静默丢掉**这个字段。
+
+### 为什么一定要发 npm
+
+`dshmarket` 的默认排序是「npm 下载量（近 30 天）」倒序，而比较函数只认 `downloads` 这一个字段：
+
+```js
+const hasDownloads = (p) => typeof p.downloads === "number"
+```
+
+- 没有 npm 数的条目**一律排在所有有数的条目之后**，在没数的那一堆内部才按 star 排；
+- 那份目录里**没有** `githubReleaseDownloads` 字段（我核对过线上 `plugins.json` 的字段集），
+  所以「不发 npm，靠 GitHub Release 下载量兜底」这条路在这份目录上并不存在——卡片上直接没有数字。
+
+两个前提：
+
+1. `package.json` 必须有指回本仓库的 `repository`。目录的 `probe-npm.mjs` 认「这个插件有 npm 包」
+   的条件是：读仓库 `package.json` 的 `name` → 去 registry 查 → **并且该 npm 包的 `repository`
+   指回同一个 GitHub 仓库**（防抢名）。少了它会被永远判成 `npm: null`。
+2. 包名 `dsh-radeon-capacity` 在 npm 上未被占用。
+
+### 收录到社区目录
+
+`dshmarket` 读的目录来自
+[awesome-dsh-plugin/awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)，
+**一个插件一个 YAML、一次 PR 只加一个文件**：
+
+```
+data/plugins/lcy362__dsh-radeon-capacity.yml
+```
+
+CI 会检查：仓库某处 `package.json` 声明了 `dsh.bundle`、仓库创建满 1 天、未归档、不是 DSH 自己；
+另外还要求打 `dsh-plugin` topic、描述与代码相符。npm 包与 `tarball` 都在时，卡片优先给 npm 安装命令。
+
+`losebird/dsh-plugin-market` 是**另一份** registry（`registry/curated/<id>.json`），
+`dshmarket` 不会读它；想在那里看到条目，得把那个索引单独加进「发现 → 市场来源」。
+
 
 ## 许可
 

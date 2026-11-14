@@ -40,32 +40,50 @@ the UI language.
 
 ## Install
 
-### From the plugin market (recommended)
+### From npm (recommended)
 
-DSH's Settings → Plugins → Discover page accepts **market sources**, and this repo ships
-a compliant [format 1 index](market/index.json). Add either URL as a source:
+Published to npm, so you install a prebuilt package — nothing is built at install time:
 
+```sh
+dsh plugin --profile <your profile> add dsh-radeon-capacity
 ```
-https://raw.githubusercontent.com/lcy362/dsh-radeon-capacity/main/market/index.json
-```
 
-If `raw.githubusercontent.com` is unreliable from your network, use the jsDelivr mirror:
+On DSH Desktop, install it from **Settings → Plugins** inside the app. If you use the CLI against
+the desktop profile, **quit the app completely first** — otherwise the command writes into a
+different profile (`profiles/web`) and nothing shows up in the UI.
+
+### From the community catalog
+
+The catalog `dshmarket` reads is curated by
+[awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin). Once listed, the
+plugin appears under Plugins → Discover and installs with one click.
+
+### From this repo's own index
+
+Before it is listed anywhere, you can add this repo's [format 1 index](market/index.json) as a
+market source (Settings → Plugins → Discover → Index sources). jsDelivr first — it is reachable
+from mainland China:
 
 ```
 https://cdn.jsdelivr.net/gh/lcy362/dsh-radeon-capacity@main/market/index.json
 ```
 
-Radeon Capacity then shows up under Discover and installs with one click (the market
-installs the pinned commit, never a half-finished branch tip).
+The same file on GitHub, for networks where raw is reachable:
+
+```
+https://raw.githubusercontent.com/lcy362/dsh-radeon-capacity/main/market/index.json
+```
+
+Radeon Capacity then shows up under Discover and installs with one click (the market installs the
+commit pinned in the index, never a half-finished branch tip).
 
 ### From source
 
 ```sh
 cd ~/.dsh/profiles/desktop
-pnpm add dsh-radeon-capacity        # or: pnpm add /path/to/this/repo
+pnpm add link:/path/to/this/repo
 # register "dsh-radeon-capacity" in package.json → dsh.profile.bundles
 ```
-
 **No restart needed.** The kernel's HMR (`dsh-hmr`) watches the profile
 `package.json` and `cordis.patch.yml` and recomposes patches live; the client half
 (`dsh-client-hmr`) polls bundle mtimes and pushes `/plugins/events`, so the browser
@@ -200,6 +218,67 @@ node scripts/smoke.mjs          # live smoke test against real endpoints; prints
 ```
 
 `npm test` uses `--test-force-exit`: the client half starts a polling timer (real UI behaviour), so the process would otherwise hang.
+
+## Releasing and listing (maintainers)
+
+### Cutting a release
+
+```sh
+npm version patch --no-git-tag-version   # bump package.json, without tagging yet
+git commit -am "chore(release): vX.Y.Z" && git push
+bash scripts/release.sh                  # tests -> pack -> tag + GitHub Release
+npm publish                              # needs a prior npm login
+```
+
+`scripts/release.sh` uploads the artifact under the **fixed** name `dsh-radeon-capacity.tgz` and
+prints the new commit SHA, which goes into `market/index.json`'s `source.commit` (the index must
+not point at its own commit).
+
+The asset name must not carry the version: the index's `tarball` field points at
+`releases/latest/download/`, and a versioned filename 404s as soon as the next release ships —
+the catalog's `probe-tarballs.mjs` then **silently drops** the field.
+
+### Why publishing to npm matters
+
+`dshmarket` sorts by "npm downloads (30d)", descending, by default, and its comparator only looks
+at `downloads`:
+
+```js
+const hasDownloads = (p) => typeof p.downloads === "number"
+```
+
+- Entries without an npm count sort **below every entry that has one**; only inside that group does
+  it fall back to stars.
+- The catalog has **no** `githubReleaseDownloads` field (I checked the live `plugins.json` field
+  set), so "skip npm and lean on GitHub Release downloads" does not work here — the card simply
+  shows no number.
+
+Two prerequisites:
+
+1. `package.json` must carry a `repository` pointing back at this repo. The catalog's `probe-npm.mjs`
+   accepts an npm package only when the registry entry's `repository` points at the same GitHub repo
+   (a name-squatting guard). Without it the entry stays `npm: null` forever.
+2. The name `dsh-radeon-capacity` is free on npm.
+
+### Listing in the community catalog
+
+The catalog `dshmarket` reads comes from
+[awesome-dsh-plugin/awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin):
+**one YAML per plugin, one file per PR**:
+
+```
+data/plugins/lcy362__dsh-radeon-capacity.yml
+```
+
+CI checks that some `package.json` in the repo declares `dsh.bundle`, that the repo is at least a
+day old, is not archived and is not DSH itself; it also expects the `dsh-plugin` topic and a
+description that matches the code. When both an npm package and a `tarball` exist, the card offers
+the npm install command.
+
+`losebird/dsh-plugin-market` is a **separate** registry (`registry/curated/<id>.json`) that
+`dshmarket` does not read — seeing an entry there requires adding that index under
+Discover → Index sources yourself.
+
 
 ## License
 
