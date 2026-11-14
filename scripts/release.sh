@@ -102,9 +102,9 @@ cp "${PACKED}" "${ASSET_NAME}"
 
 if [ "${DRY_RUN}" = 1 ]; then
   echo
-  ok "--dry-run：跳过 GitHub。产物在 ./${ASSET_NAME}"
+  ok "--dry-run：跳过 GitHub，产物保留在 ./${ASSET_NAME}（可直接手动上传）"
   echo "  真发的话会执行：gh release create ${TAG} --target ${HEAD_SHA} --generate-notes ${ASSET_NAME}"
-  rm -f "${ASSET_NAME}"
+  rm -f "${PACKED}"   # 只留固定资产名那一份，别在仓库根堆中间产物
   exit 0
 fi
 
@@ -117,7 +117,7 @@ gh release create "${TAG}" \
   --generate-notes \
   "${ASSET_NAME}" >/dev/null
 
-rm -f "${ASSET_NAME}"
+rm -f "${ASSET_NAME}" "${PACKED}"
 ok "Release ${TAG} 已发布"
 
 echo
