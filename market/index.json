@@ -101,6 +101,18 @@
           "engines": {
             "dsh": ">=0.2.0-rc.1 <0.3.0-0"
           }
+        },
+        {
+          "version": "0.1.2",
+          "publishTimestamp": 1794704947,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/lcy362/dsh-radeon-capacity",
+            "commit": "18601640e1bd81554d631155a002603de5613c2c"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1 <0.3.0-0"
+          }
         }
       ]
     }
