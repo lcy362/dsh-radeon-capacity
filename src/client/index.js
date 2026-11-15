@@ -205,11 +205,22 @@ window.__ModuleLoader__.load({
       for (const listener of [...store.listeners]) listener()
     }
 
+    /**
+     * 最近一次 /state 请求的真实 HTTP 状态。
+     *
+     * 宿主的信任栅栏会对未认证或非受信来源回 401/403，而界面上的表现只是
+     * "读数空白"，看不出是哪一层挡的。记下状态码，诊断上报时一起带出去。
+     */
+    let lastStateStatus = 0
+
     /** 拉一次宿主状态；单飞，失败保留旧值。 */
     function ensureFresh() {
       if (store.inflight !== null) return store.inflight
       store.inflight = fetch(`${API}/state`, { headers: { accept: 'application/json' } })
-        .then((response) => response.json())
+        .then((response) => {
+          lastStateStatus = response.status
+          return response.json()
+        })
         .then((body) => {
           if (body !== null && body.ok === true) {
             store.value = body.value

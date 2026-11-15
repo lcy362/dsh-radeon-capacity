@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { catalogView, createRoutes, ROUTE_PREFIX, sameOrigin } from '../src/host/routes.js'
+import {
+  catalogView, createRoutes, hostNameOf, isJsonRequest, isLocalRequest, isLoopbackHost, ROUTE_PREFIX, sameOrigin,
+} from '../src/host/routes.js'
 
 /** 极简 res 桩，收集状态码与响应体。 */
 function makeRes() {
@@ -18,12 +20,17 @@ function makeRes() {
   }
 }
 
-/** 极简 req 桩。 */
-function makeReq(method, path, { body, origin } = {}) {
+/** 极简 req 桩：默认回环 Host；POST 默认声明 application/json（客户端就是这么发的）。 */
+function makeReq(method, path, { body, origin, host = '127.0.0.1:51226', contentType, secFetchSite } = {}) {
+  const headers = { host }
+  if (origin !== undefined) headers.origin = origin
+  if (secFetchSite !== undefined) headers['sec-fetch-site'] = secFetchSite
+  const type = contentType === undefined ? (method === 'POST' ? 'application/json' : undefined) : contentType
+  if (type !== undefined) headers['content-type'] = type
   const req = {
     method,
     url: path,
-    headers: origin === undefined ? { host: '127.0.0.1:51226' } : { host: '127.0.0.1:51226', origin },
+    headers,
     async *[Symbol.asyncIterator]() {
       if (body !== undefined) yield Buffer.from(JSON.stringify(body))
     },
@@ -36,6 +43,147 @@ test('sameOrigin：无 Origin 放行，跨源拒绝', () => {
   assert.equal(sameOrigin(makeReq('GET', '/')), true)
   assert.equal(sameOrigin(makeReq('GET', '/', { origin: 'http://127.0.0.1:51226' })), true)
   assert.equal(sameOrigin(makeReq('GET', '/', { origin: 'https://evil.example' })), false)
+})
+
+test('DNS rebinding：Origin 与 Host 一起变成外部域名时必须拒绝', () => {
+  // 这是维护者指出的那个漏洞。evil.com 的页面把域名重绑定到 127.0.0.1 之后，
+  // 它发出的请求里 Origin 与 Host 都是 evil.com —— 只比较这两者会通过。
+  const rebound = makeReq('GET', '/', { host: 'evil.example', origin: 'http://evil.example' })
+  assert.equal(sameOrigin(rebound), true, '旧判据确实会被绕过（这就是当初的问题）')
+  assert.equal(isLocalRequest(rebound), false, '新判据必须拒绝')
+})
+
+test('isLocalRequest：回环 Host + 无 Origin 放行；非回环 Host 一律拒绝', () => {
+  assert.equal(isLocalRequest(makeReq('GET', '/')), true)
+  assert.equal(isLocalRequest(makeReq('GET', '/', { host: 'localhost:3000' })), true)
+  assert.equal(isLocalRequest(makeReq('GET', '/', { host: '127.0.0.1:1', origin: 'http://127.0.0.1:1' })), true)
+  assert.equal(isLocalRequest(makeReq('GET', '/', { host: '10.0.0.5:3000' })), false)
+  assert.equal(isLocalRequest(makeReq('GET', '/', { host: 'evil.example' })), false)
+})
+
+test('isLocalRequest：sec-fetch-site: cross-site 一律拒绝', () => {
+  assert.equal(isLocalRequest(makeReq('GET', '/', { secFetchSite: 'cross-site' })), false)
+  assert.equal(isLocalRequest(makeReq('GET', '/', { secFetchSite: 'same-origin' })), true)
+})
+
+test('hostNameOf / isLoopbackHost 基本形态', () => {
+  assert.equal(hostNameOf({ headers: { host: '127.0.0.1:51226' } }), '127.0.0.1')
+  assert.equal(hostNameOf({ headers: { host: '[::1]:51226' } }), '::1')
+  assert.equal(hostNameOf({ headers: {} }), '')
+  assert.equal(isLoopbackHost('127.0.0.1'), true)
+  assert.equal(isLoopbackHost('127.8.9.10'), true)
+  assert.equal(isLoopbackHost('::1'), true)
+  assert.equal(isLoopbackHost('localhost'), true)
+  assert.equal(isLoopbackHost('evil.example'), false)
+})
+
+test('isJsonRequest 只认 application/json（可带参数、大小写不敏感）', () => {
+  assert.equal(isJsonRequest({ headers: { 'content-type': 'application/json' } }), true)
+  assert.equal(isJsonRequest({ headers: { 'content-type': 'Application/JSON; charset=utf-8' } }), true)
+  assert.equal(isJsonRequest({ headers: { 'content-type': 'text/plain' } }), false)
+  assert.equal(isJsonRequest({ headers: {} }), false)
+})
+
+test('POST 不声明 JSON 时回 415（跨站表单无法伪造这个头）', async () => {
+  const routes = createRoutes({ state: async () => ({}), refresh: async () => {}, writeConfig: async () => ({}) })
+  const res = makeRes()
+  await routes.handler(
+    makeReq('POST', `${ROUTE_PREFIX}/config`, { body: { providerId: 'amd' }, contentType: 'text/plain' }),
+    res,
+  )
+  assert.equal(res.captured.status, 415)
+})
+
+test('栅栏返回 403 时直接拒绝', async () => {
+  let seen = 0
+  const routes = createRoutes({
+    state: async () => ({}),
+    refresh: async () => {},
+    writeConfig: async () => ({}),
+    requestRejection: (req) => {
+      seen += 1
+      return req.headers.origin === 'https://evil.example' ? 403 : undefined
+    },
+  })
+  const ok = makeRes()
+  await routes.handler(makeReq('GET', `${ROUTE_PREFIX}/state`), ok)
+  assert.equal(ok.captured.status, 200)
+
+  const blocked = makeRes()
+  await routes.handler(makeReq('GET', `${ROUTE_PREFIX}/state`, { origin: 'https://evil.example' }), blocked)
+  assert.equal(blocked.captured.status, 403)
+  assert.equal(seen, 2, '每个请求都要问一次栅栏')
+})
+
+test('栅栏返回 401 时退回本地判据：回环页面放行，外部页面仍拒绝', async () => {
+  // 桌面端页面由 dsh-app:// 加载，与 127.0.0.1 不同源，fetch 不一定带得上
+  // auth cookie。若 401 一律拒绝，界面读数会整个消失。
+  const routes = createRoutes({
+    state: async () => ({}),
+    refresh: async () => {},
+    writeConfig: async () => ({}),
+    requestRejection: () => 401,
+  })
+
+  const desktopLike = makeRes()
+  await routes.handler(makeReq('GET', `${ROUTE_PREFIX}/state`, { host: '127.0.0.1:52191' }), desktopLike)
+  assert.equal(desktopLike.captured.status, 200, '回环页面的请求应当放行')
+
+  const rebound = makeRes()
+  await routes.handler(
+    makeReq('GET', `${ROUTE_PREFIX}/state`, { host: 'evil.example', origin: 'http://evil.example' }),
+    rebound,
+  )
+  assert.equal(rebound.captured.status, 403, 'DNS rebinding 形态仍然被第 2 层挡住')
+})
+
+test('DSH 信任栅栏自己抛错时不能让请求崩掉', async () => {
+  const routes = createRoutes({
+    state: async () => ({}),
+    refresh: async () => {},
+    writeConfig: async () => ({}),
+    requestRejection: () => {
+      throw new Error('service exploded')
+    },
+  })
+  const res = makeRes()
+  await routes.handler(makeReq('GET', `${ROUTE_PREFIX}/state`), res)
+  assert.equal(res.captured.status, 200, '栅栏异常时退回本地兜底，而不是 500')
+})
+
+test('诊断端点：栅栏之前可读，但只限回环 Host，且只回拒绝记录', async () => {
+  const routes = createRoutes({
+    state: async () => ({}),
+    refresh: async () => {},
+    writeConfig: async () => ({}),
+    requestRejection: (req) => (req.headers.origin === 'https://evil.example' ? 403 : undefined),
+  })
+
+  // 先制造一次被栅栏拒绝的请求
+  const blocked = makeRes()
+  await routes.handler(makeReq('GET', `${ROUTE_PREFIX}/state`, { origin: 'https://evil.example' }), blocked)
+  assert.equal(blocked.captured.status, 403)
+
+  // 诊断端点本身能读到那次拒绝（否则永远不知道原因）
+  const diag = makeRes()
+  await routes.handler(makeReq('GET', `${ROUTE_PREFIX}/diagnostics`), diag)
+  assert.equal(diag.captured.status, 200)
+  assert.equal(diag.captured.body.value.fenceActive, true)
+  assert.equal(diag.captured.body.value.rejections.length, 1)
+  assert.equal(diag.captured.body.value.rejections[0].code, 403)
+  assert.equal(diag.captured.body.value.rejections[0].layer, 'connection')
+  // 只回元数据，不回请求体 / 凭据
+  assert.equal(diag.captured.body.value.rejections[0].body, undefined)
+})
+
+test('诊断端点：外部 Host 读不到（DNS rebinding 不开口子）', async () => {
+  const routes = createRoutes({ state: async () => ({}), refresh: async () => {}, writeConfig: async () => ({}) })
+  const res = makeRes()
+  await routes.handler(
+    makeReq('GET', `${ROUTE_PREFIX}/diagnostics`, { host: 'evil.example', origin: 'http://evil.example' }),
+    res,
+  )
+  assert.equal(res.captured.status, 403)
 })
 
 test('GET /state 返回状态；跨源直接 403', async () => {

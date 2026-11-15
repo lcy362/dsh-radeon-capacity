@@ -239,12 +239,47 @@ export function apply(ctx, config = {}) {
     return written
   }
 
+  /**
+   * DSH 的浏览器信任栅栏(`ctx.connection.requestRejection`)。
+   *
+   * 官方 web 面插件(dsh-host-open-in-app)把它声明成 top-level `inject` 硬依赖;
+   * 这里按可选服务取,保留本插件"缺服务只降级、不整个加载失败"的性质 —— 没有
+   * connection 就没有 web carrier,也就没有浏览器请求需要防。真拿不到时,路由
+   * 还有自己的本地兜底(回环 Host + 写请求必须是 JSON)。
+   */
+  let connectionService
+  ctx.inject(['connection'], (scope) => {
+    try {
+      const service = scope.get('connection')
+      if (service !== undefined && service !== null) connectionService = service
+    } catch {
+      connectionService = undefined
+    }
+  })
+
+  /**
+   * 问 DSH 这道栅栏放不放行。
+   *
+   * @param {any} req 请求
+   * @returns {number | undefined} 非 undefined 表示应以此状态码拒绝
+   */
+  function requestRejection(req) {
+    const service = connectionService
+    if (service === undefined || typeof service.requestRejection !== 'function') return undefined
+    try {
+      return service.requestRejection(req)
+    } catch {
+      return undefined
+    }
+  }
+
   ctx.inject(['webServer'], (scope) => {
     const route = createRoutes({
       state,
       refresh,
       writeConfig,
       discover,
+      requestRejection,
       log: (error) => ctx.logger?.warn?.('[dsh-radeon-capacity] %s', error instanceof Error ? error.message : String(error)),
     })
     scope.effect(() => scope.webServer.register(route), 'dsh-radeon-capacity: /api/radeon-capacity routes')

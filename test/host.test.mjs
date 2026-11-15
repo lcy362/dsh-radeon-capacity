@@ -27,10 +27,14 @@ function makeCtx(services = {}) {
 /** 极简 req/res。 */
 function call(route, method, path, body) {
   const captured = { status: 0, body: null }
+  // POST 默认带 application/json：真实客户端一律这么发，路由现在也要求写请求
+  // 必须声明 JSON（跨站表单无法伪造这个头）。
+  const headers = { host: '127.0.0.1:51226' }
+  if (method === 'POST') headers['content-type'] = 'application/json'
   const req = {
     method,
     url: path,
-    headers: { host: '127.0.0.1:51226' },
+    headers,
     async *[Symbol.asyncIterator]() {
       if (body !== undefined) yield Buffer.from(JSON.stringify(body))
     },
